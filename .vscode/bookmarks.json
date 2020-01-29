@@ -1,6 +1,6 @@
 [
 	{
-		"path": "$ROOTPATH$/src/Language/C/Parser/Parser.y",
+		"path": "$ROOTPATH$/C-with-Hindley-Milner-Type-System/src/Language/C/Parser/Parser.y",
 		"bookmarks": [
 			{
 				"line": 262,
@@ -10,7 +10,7 @@
 		]
 	},
 	{
-		"path": "$ROOTPATH$/src/Language/C/Pretty.hs",
+		"path": "$ROOTPATH$/C-with-Hindley-Milner-Type-System/src/Language/C/Pretty.hs",
 		"bookmarks": [
 			{
 				"line": 554,
@@ -20,7 +20,7 @@
 		]
 	},
 	{
-		"path": "$ROOTPATH$/src/Language/C/Syntax/AST.hs",
+		"path": "$ROOTPATH$/C-with-Hindley-Milner-Type-System/src/Language/C/Syntax/AST.hs",
 		"bookmarks": [
 			{
 				"line": 58,
@@ -40,7 +40,7 @@
 		]
 	},
 	{
-		"path": "$ROOTPATH$/src/Language/C/Parser/Lexer.x",
+		"path": "$ROOTPATH$/C-with-Hindley-Milner-Type-System/src/Language/C/Parser/Lexer.x",
 		"bookmarks": [
 			{
 				"line": 425,
