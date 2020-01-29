@@ -1,0 +1,23 @@
+{
+    "folders": [
+        {
+            "path": "."
+        }
+    ],
+    "settings": {
+        "bookmarks.saveBookmarksInProject": true,
+        "files.trimTrailingWhitespace": true,
+        "files.insertFinalNewline": true,
+
+        "files.associations": {
+            "**/Parser.y": "haskell",
+            "**/Lexer.x": "haskell"
+        }
+    },
+    "extensions": {
+        "recommendations": [
+            "alefragnani.Bookmarks",
+            "Gruntfuggly.todo-tree"
+        ]
+    }
+}

@@ -1,0 +1,52 @@
+[
+	{
+		"path": "$ROOTPATH$/src/Language/C/Parser/Parser.y",
+		"bookmarks": [
+			{
+				"line": 262,
+				"column": 8,
+				"label": "CHM Tokens"
+			}
+		]
+	},
+	{
+		"path": "$ROOTPATH$/src/Language/C/Pretty.hs",
+		"bookmarks": [
+			{
+				"line": 554,
+				"column": 6,
+				"label": "CHM Pretty"
+			}
+		]
+	},
+	{
+		"path": "$ROOTPATH$/src/Language/C/Syntax/AST.hs",
+		"bookmarks": [
+			{
+				"line": 58,
+				"column": 0,
+				"label": "CHM Exports"
+			},
+			{
+				"line": 814,
+				"column": 8,
+				"label": "CHM AST"
+			},
+			{
+				"line": 1514,
+				"column": 4,
+				"label": "CHM instances"
+			}
+		]
+	},
+	{
+		"path": "$ROOTPATH$/src/Language/C/Parser/Lexer.x",
+		"bookmarks": [
+			{
+				"line": 425,
+				"column": 16,
+				"label": "CHM Token  Lex"
+			}
+		]
+	}
+]
