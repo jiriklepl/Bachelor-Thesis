@@ -54,7 +54,7 @@ module Language.C.Syntax.AST (
   -- * Constants
   CConst, CStrLit, cstringOfLit, liftStrLit,
   CConstant(..), CStringLiteral(..),
-  -- * Annoated type class
+  -- * Annotated type class
   Annotated(..),
   -- CHM goes here
   CHMStructDef, CHMStructureDef(..),
@@ -71,7 +71,7 @@ import Data.Generics hiding (Generic)
 import GHC.Generics (Generic, Generic1)
 import Control.DeepSeq (NFData)
 
--- | Complete C tranlsation unit (C99 6.9, K&R A10)
+-- | Complete C translation unit (C99 6.9, K&R A10)
 --
 -- A complete C translation unit, for example representing a C header or source file.
 -- It consists of a list of external (i.e. toplevel) declarations.
@@ -208,7 +208,7 @@ instance Functor CDeclaration where
 --
 --  * @(CFunDeclr attrs) `indirect` T@ is /attributed function returning T/
 --
---  * @(CArrayDeclr attrs) `indirect` T@ is /attributed array of elemements of type T/
+--  * @(CArrayDeclr attrs) `indirect` T@ is /attributed array of elements of type T/
 --
 -- Examples (simplified attributes):
 --
@@ -363,7 +363,7 @@ instance Functor CStatement where
 --
 -- is an inline assembler statement.
 -- The only type-qualifier (if any) allowed is /volatile/.
--- @asm-expr@ is the actual assembler epxression (a string), @out-ops@ and @in-ops@ are the input
+-- @asm-expr@ is the actual assembler expression (a string), @out-ops@ and @in-ops@ are the input
 -- and output operands of the statement.
 -- @clobbers@ is a list of registers which are clobbered when executing the assembler statement
 type CAsmStmt = CAssemblyStatement NodeInfo
@@ -554,7 +554,7 @@ data CStructureUnion a
 
 instance NFData a => NFData (CStructureUnion a)
 
--- | A tag to determine wheter we refer to a @struct@ or @union@, see 'CStructUnion'.
+-- | A tag to determine whether we refer to a @struct@ or @union@, see 'CStructUnion'.
 data CStructTag = CStructTag
                 | CUnionTag
                 deriving (Show, Eq,Data,Typeable, Generic)
@@ -761,7 +761,7 @@ instance Functor CExpression where
           where
             fmap_helper (ma1, a2) = (fmap (fmap _f) ma1, fmap _f a2)
 
--- | GNU Builtins, which cannot be typed in C99
+-- | GNU Built-ins, which cannot be typed in C99
 type CBuiltin = CBuiltinThing NodeInfo
 data CBuiltinThing a
   = CBuiltinVaArg (CExpression a) (CDeclaration a) a            -- ^ @(expr, type)@
@@ -813,6 +813,14 @@ class (Functor ast) => Annotated ast where
 -- fmap2 f (a,b) = (f a, b)
 
 -- CHM goes here
+type CHMCDef = CHMClassDef NodeInfo
+data CHMClassDef a
+  = CHMCDef
+    (CHMHeader a)
+    (CExternalDeclaration a)       -- declarations
+    a
+    deriving (Show, Data,Typeable, Generic, Generic1 {-! ,CNode ,Functor ,Annotated !-})
+
 type CHMStructDef = CHMStructureDef NodeInfo
 data CHMStructureDef a
   = CHMStructDef

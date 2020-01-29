@@ -66,8 +66,8 @@ module Language.C.Parser.Parser (
 --     - asm definitions
 --
 --  Since some of the grammar productions are quite difficult to read,
---  (especially those involved with the decleration syntax) we document them
---  with an extended syntax that allows a more consise representation:
+--  (especially those involved with the declaration syntax) we document them
+--  with an extended syntax that allows a more concise representation:
 --
 --  Ordinary rules
 --
@@ -98,7 +98,7 @@ module Language.C.Parser.Parser (
 --  !* We ignore the C99 static keyword (see C99 6.7.5.3)
 --  !* We do not distinguish in the AST between incomplete array types and
 --      complete variable length arrays ([ '*' ] means the latter). (see C99 6.7.5.2)
---  !* The AST doesn't allow recording __attribute__ of unnamed struct field
+--  !* The AST does not allow recording __attribute__ of unnamed struct field
 --     (see , struct_default_declaring_list, struct_identifier_declarator)
 --  !* see `We're being far to liberal here' (... struct definition within structs)
 --  * Documentation isn't complete and consistent yet.
@@ -571,7 +571,7 @@ asm_clobbers
 ---------------------------------------------------------------------------------------------------------------
 
 Declarations are the most complicated part of the grammar, and shall be summarized here.
-To allow a lightweight notation, we will use the modifier <permute> to indicate that the order of the immidieate right-hand sides doesn't matter.
+To allow a lightweight notation, we will use the modifier <permute> to indicate that the order of the immediate right-hand sides doesn't matter.
  - <permute> a* b+ c   === any sequence of a's, b's and c's, which contains exactly 1 'c' and at least one 'b'
 
 -- storage class and type qualifier
@@ -584,7 +584,7 @@ alignment_specifier        :-   _Alignas (type_name) | _Alignas (constant_expr)
 type_qualifier             :-   const | volatile | restrict | _Atomic | _Nullable | _Nonnull | __read_only | __write_only
 type_qualifier_list        :-   type_qualifier+
 
-declaration_qualifier      :-   storage_class | type_qualifier | function_specifier | alginment_specifier
+declaration_qualifier      :-   storage_class | type_qualifier | function_specifier | alignment_specifier
 declaration_qualifier_list :-   <permute> type_qualifier* storage_class+
 
 qualifiers                 :-   declaration_qualifier_list | type_qualifier_list
@@ -610,7 +610,7 @@ sue_declaration           := sue_declaration_specifier | sue_type_specifier
 ---------------------------------------------------------------------------------------------------------------
 identifier_declarator :- ( '*' (type_qualifier | attr)* ) * ident     [ array_decl | "(" parameter-list ")" ]
                                plus additional parenthesis' ending ^^ here
-typedef_declartor     :-
+typedef_declarator     :-
 declarator            :- identifier_declarator | typedef_declarator
 
 -- Declaration lists
@@ -656,10 +656,10 @@ declaring_list' :-          specifier' declarator asm*attr* initializer?
                                  { ',' attr* declarator asm*attr* initializer? }
 
 
-type_qualifier_list' is like type_qualifier_list, but with preceeding and/or interleaving (but not terminating) __attribute__ annotations.
-declaration_qualifier_list', declaration_specifier' and type_specifier' are like their unprimed variants, but with arbitrary preceeding, interleaving and/or terminating __attribute__ annotations.
+type_qualifier_list' is like type_qualifier_list, but with preceding and/or interleaving (but not terminating) __attribute__ annotations.
+declaration_qualifier_list', declaration_specifier' and type_specifier' are like their unprimed variants, but with arbitrary preceding, interleaving and/or terminating __attribute__ annotations.
 
-"An attribute list may appear immediately before a declarator other than the first in a comma seperated list of declarators"
+"An attribute list may appear immediately before a declarator other than the first in a comma separated list of declarators"
 
 "The attribute specifiers may be the only specifiers present (implicit int)" [not supported]
 
@@ -702,7 +702,7 @@ declaration_list
 -- * GNU extensions
 --   __attribute__ annotations imm. before an declarator (see Attribute Syntax, paragraph 11)
 --   asm + __attribute__ annotations (end of declarations, see Attribute Syntax, paragraph 12)
---   The assembler annotation is used to specifiy an assembler name for the declarator.
+--   The assembler annotation is used to specify an assembler name for the declarator.
 --
 default_declaring_list :: { CDecl }
 default_declaring_list
@@ -866,7 +866,7 @@ alignment_specifier
 
 -- parse C type specifier (C99 6.7.2)
 --
--- This recignises a whole list of type specifiers rather than just one
+-- This recognizes a whole list of type specifiers rather than just one
 -- as in the C99 grammar.
 --
 -- type_specifier :- <permute> type_qualifier* (basic_type_name+ | elaborated_type_name | g)
@@ -1597,7 +1597,7 @@ postfixing_abstract_declarator
              (params, variadic) -> funDeclr declr (Right (params,variadic)) [] at }
 
 
--- * TODO: Note that we recognise but ignore the C99 static keyword (see C99 6.7.5.3)
+-- * TODO: Note that we recognize but ignore the C99 static keyword (see C99 6.7.5.3)
 --
 -- * TODO: We do not distinguish in the AST between incomplete array types and
 -- complete variable length arrays ([ '*' ] means the latter). (see C99 6.7.5.2)
@@ -2199,7 +2199,7 @@ chm_type_list :: { Reversed [[CDeclSpec]] }
 
 {
 
---  sometimes it is neccessary to reverse an unreversed list
+--  sometimes it is necessary to reverse an unreversed list
 reverseList :: [a] -> Reversed [a]
 reverseList = Reversed . List.reverse
 
@@ -2274,7 +2274,7 @@ withAttributePF node cattrs mkDeclrCtor = do
 -- >        (asm "$y")
 -- >        [__attribute__((a1)), __attribute__((a3)) ]
 --
--- So assembler names and preceeding and trailing attributes are recorded in object declarator.
+-- So assembler names and preceding and trailing attributes are recorded in object declarator.
 --
 appendObjAttrs :: [CAttr] -> CDeclr -> CDeclr
 appendObjAttrs newAttrs (CDeclr ident indirections asmname cAttrs at)
@@ -2356,7 +2356,7 @@ mkVarDeclr ident = CDeclrR (Just ident) empty Nothing []
 
 -- Take the identifiers and use them to update the typedef'ed identifier set
 -- if the decl is defining a typedef then we add it to the set,
--- if it's a var decl then that shadows typedefed identifiers
+-- if it's a var decl then that shadows typedef-ed identifiers
 --
 doDeclIdent :: [CDeclSpec] -> CDeclrR -> P ()
 doDeclIdent declspecs (CDeclrR mIdent _ _ _ _) =
