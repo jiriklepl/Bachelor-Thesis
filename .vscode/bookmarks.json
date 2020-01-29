@@ -6,6 +6,11 @@
 				"line": 262,
 				"column": 8,
 				"label": "CHM Tokens"
+			},
+			{
+				"line": 2164,
+				"column": 6,
+				"label": "CHM Rules"
 			}
 		]
 	},
@@ -33,7 +38,7 @@
 				"label": "CHM AST"
 			},
 			{
-				"line": 1514,
+				"line": 1522,
 				"column": 4,
 				"label": "CHM instances"
 			}
