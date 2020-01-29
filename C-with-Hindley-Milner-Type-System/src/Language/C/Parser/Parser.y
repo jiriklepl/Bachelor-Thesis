@@ -299,6 +299,7 @@ external_declaration
   : function_definition		                  { CFDefExt $1 }
   | chm_function_definition        { CHMFDefExt $1 }  -- CHM addition
   | chm_structure_definition       { CHMSDefExt $1 }  -- CHM addition
+  | chm_class_definition           { CHMCDefExt $1 }  -- CHM addition
   | declaration			                        { CDeclExt $1 }
   | "__extension__" external_declaration    { $2 }
   | asm '(' string_literal ')' ';'		      {% withNodeInfo $1 $ CAsmExt $3 }
@@ -2163,6 +2164,15 @@ attribute_params
   | attribute_params ',' unary_expression assignment_operator clang_version_literal { $1 }
 
 -- CHM goes here
+chm_class_definition :: { CHMCDef }
+chm_class_definition
+  : chm_class_declarator '{' external_declaration '}'
+    {% leaveScope >> (withNodeInfo $2 $ CHMCDef (fst $1) (snd $1) $3) }
+
+chm_class_declarator :: { (Ident, CHMHead) }
+chm_class_declarator
+  : chm_header "class" ident {% withNodeInfo $1 $ return ($3, $1) }
+
 chm_structure_definition :: { CHMStructDef }
 chm_structure_definition
   : chm_header struct_or_union_specifier ';'
