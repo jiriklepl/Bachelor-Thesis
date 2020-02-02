@@ -8,7 +8,7 @@
 				"label": "CHM Tokens"
 			},
 			{
-				"line": 2165,
+				"line": 2166,
 				"column": 6,
 				"label": "CHM Rules"
 			}
@@ -33,12 +33,12 @@
 				"label": "CHM Exports"
 			},
 			{
-				"line": 816,
+				"line": 819,
 				"column": 8,
 				"label": "CHM AST"
 			},
 			{
-				"line": 1527,
+				"line": 1557,
 				"column": 4,
 				"label": "CHM instances"
 			}
