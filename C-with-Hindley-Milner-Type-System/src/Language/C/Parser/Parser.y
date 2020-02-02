@@ -297,9 +297,10 @@ ext_decl_list
 external_declaration :: { CExtDecl }
 external_declaration
   : function_definition		                  { CFDefExt $1 }
-  | chm_function_definition        { CHMFDefExt $1 }  -- CHM addition
-  | chm_structure_definition       { CHMSDefExt $1 }  -- CHM addition
-  | chm_class_definition           { CHMCDefExt $1 }  -- CHM addition
+  | chm_function_definition                 { CHMFDefExt $1 }  -- CHM addition
+  | chm_structure_definition                { CHMSDefExt $1 }  -- CHM addition
+  | chm_class_definition                    { CHMCDefExt $1 }  -- CHM addition
+  | chm_instance_definition                 { CHMIDefExt $1 }  -- CHM addition
   | declaration			                        { CDeclExt $1 }
   | "__extension__" external_declaration    { $2 }
   | asm '(' string_literal ')' ';'		      {% withNodeInfo $1 $ CAsmExt $3 }
@@ -2166,12 +2167,16 @@ attribute_params
 -- CHM goes here
 chm_class_definition :: { CHMCDef }
 chm_class_definition
-  : chm_class_declarator '{' external_declaration '}'
-    {% leaveScope >> (withNodeInfo $2 $ CHMCDef (fst $1) (snd $1) $3) }
+  : "class" ident chm_header '{' external_declaration '}'
+    {% leaveScope >> (withNodeInfo $2 $ CHMCDef $2 $3 $5) }
 
-chm_class_declarator :: { (Ident, CHMHead) }
-chm_class_declarator
-  : chm_header "class" ident {% withNodeInfo $1 $ return ($3, $1) }
+chm_instance_definition :: { CHMIDef }
+chm_instance_definition
+  : chm_header "instance" ident chm_param_list '{' external_declaration '}'
+    {% leaveScope >> (withNodeInfo $3 $ CHMIDefHead $3 $1 $4 $6) }
+
+  | "instance" ident chm_param_list '{' external_declaration '}'
+    {% withNodeInfo $2 $ CHMIDef $2 $3 $5 }
 
 chm_structure_definition :: { CHMStructDef }
 chm_structure_definition
@@ -2185,9 +2190,19 @@ chm_function_definition
 
 chm_header :: { CHMHead }
 chm_header
-  : '<' newtype_list '>' {% withNodeInfo $2 $ CHMHead (reverse $2) [] }
-  | '<' newtype_list ':' chm_constraint_list '>' {% withNodeInfo $2 $ CHMHead (reverse $2) (reverse $4) }
-  | '<' ':' chm_constraint_list '>' {% enterScope >> (withNodeInfo $3 $ CHMHead [] (reverse $3)) }
+  : '<' newtype_list '>'
+    {% withNodeInfo $2 $ CHMHead (reverse $2) [] }
+
+  | '<' newtype_list ':' chm_constraint_list '>'
+    {% withNodeInfo $2 $ CHMHead (reverse $2) (reverse $4) }
+
+  | '<' ':' chm_constraint_list '>'
+    {% enterScope >> (withNodeInfo $3 $ CHMHead [] (reverse $3)) }
+
+
+chm_param_list :: { CHMParams }
+chm_param_list
+  : '<' chm_type_list '>' {% withNodeInfo $2 $ CHMParams (reverse $2) }
 
 newtype_list :: { Reversed [Ident] }
 newtype_list
@@ -2201,7 +2216,8 @@ chm_constraint_list
 
 chm_constraint :: { CHMConstr }
 chm_constraint
-  : ident '<' chm_type_list '>' {% withNodeInfo $1 $ CHMConstr $1 (reverse $3)  }
+  : ident '<' chm_type_list '>'
+    {% withNodeInfo $1 $ CHMConstr $1 (reverse $3)  }
 
 chm_type_list :: { Reversed [[CDeclSpec]] }
   : type_specifier { singleton $1 }
