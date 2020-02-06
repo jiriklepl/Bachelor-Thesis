@@ -823,7 +823,7 @@ data CHMClassDef a
   = CHMCDef
     Ident
     (CHMHeader a)
-    (CExternalDeclaration a)       -- declarations
+    [CExternalDeclaration a]       -- declarations
     a
     deriving (Show, Data,Typeable, Generic, Generic1 {-! ,CNode ,Functor ,Annotated !-})
 
@@ -835,12 +835,12 @@ data CHMInstanceDef a
     Ident
     (CHMHeader a)
     (CHMParameters a)
-    (CExternalDeclaration a)       -- declarations
+    [CExternalDeclaration a]       -- declarations
     a
     | CHMIDef
       Ident
       (CHMParameters a)
-      (CExternalDeclaration a)       -- declarations
+      [CExternalDeclaration a]       -- declarations
       a
     deriving (Show, Data,Typeable, Generic, Generic1 {-! ,CNode ,Functor ,Annotated !-})
 
@@ -1560,10 +1560,10 @@ instance Annotated CStringLiteral where
 -- Classes start from here:
 instance Annotated CHMClassDef where
         annotation (CHMCDef _ _ _ n) = n
-        amap f (CHMCDef a1 a2 a3 a4) = CHMCDef a1 (amap f a2) (amap f a3) (f a4)
+        amap f (CHMCDef a1 a2 a3 a4) = CHMCDef a1 (amap f a2) (amap f <$> a3) (f a4)
 
 instance Functor CHMClassDef where
-        fmap f (CHMCDef a1 a2 a3 a4) = CHMCDef a1 (fmap f a2) (fmap f a3) (f a4)
+        fmap f (CHMCDef a1 a2 a3 a4) = CHMCDef a1 (fmap f a2) (fmap f <$> a3) (f a4)
 
 instance CNode t1 => CNode (CHMClassDef t1) where
         nodeInfo (CHMCDef _ _ _ n) = nodeInfo n
@@ -1575,12 +1575,12 @@ instance CNode t1 => Pos (CHMClassDef t1) where
 instance Annotated CHMInstanceDef where
         annotation (CHMIDef _ _ _ n) = n
         annotation (CHMIDefHead _ _ _ _ n) = n
-        amap f (CHMIDef a1 a2 a3 a4) = CHMIDef a1 (amap f a2) (amap f a3) (f a4)
-        amap f (CHMIDefHead a1 a2 a3 a4 a5) = CHMIDefHead a1 (amap f a2) (amap f a3) (amap f a4) (f a5)
+        amap f (CHMIDef a1 a2 a3 a4) = CHMIDef a1 (amap f a2) (amap f <$> a3) (f a4)
+        amap f (CHMIDefHead a1 a2 a3 a4 a5) = CHMIDefHead a1 (amap f a2) (amap f a3) (amap f <$> a4) (f a5)
 
 instance Functor CHMInstanceDef where
-        fmap f (CHMIDef a1 a2 a3 a4) = CHMIDef a1 (fmap f a2) (fmap f a3) (f a4)
-        fmap f (CHMIDefHead a1 a2 a3 a4 a5) = CHMIDefHead a1 (fmap f a2) (fmap f a3) (fmap f a4) (f a5)
+        fmap f (CHMIDef a1 a2 a3 a4) = CHMIDef a1 (fmap f a2) (fmap f <$> a3) (f a4)
+        fmap f (CHMIDefHead a1 a2 a3 a4 a5) = CHMIDefHead a1 (fmap f a2) (fmap f a3) (fmap f <$> a4) (f a5)
 
 instance CNode t1 => CNode (CHMInstanceDef t1) where
         nodeInfo (CHMIDef _ _ _ n) = nodeInfo n

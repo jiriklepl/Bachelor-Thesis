@@ -98,7 +98,10 @@ prettyUsingInclude (CTranslUnit edecls _) =
 instance Pretty CExtDecl where
     pretty (CDeclExt decl) = pretty decl <> semi
     pretty (CFDefExt fund) = pretty fund
-    pretty (CHMFDefExt temp) = pretty temp -- CHM addition
+    pretty (CHMFDefExt chmf) = pretty chmf -- CHM addition
+    pretty (CHMSDefExt chms) = pretty chms -- CHM addition
+    pretty (CHMCDefExt chmc) = pretty chmc -- CHM addition
+    pretty (CHMIDefExt chmi) = pretty chmi -- CHM addition
     pretty (CAsmExt  asmStmt _) = text "asm" <> parens (pretty asmStmt) <> semi
 
 -- TODO: Check that old-style and new-style aren't mixed
@@ -556,6 +559,28 @@ binPrec CLorOp = 11
 chmBrackets :: Doc -> Doc
 chmBrackets expr = text "<" <> expr <> text ">"
 
+chmBlock :: Doc -> Doc
+chmBlock block = char '{' $+$ ii block $$ char '}'
+
+instance Pretty CHMCDef where
+    pretty (CHMCDef ident header decl _) =
+        text "class" <+>
+        identP ident <+>
+        pretty header $$
+        (chmBlock . vcat . (fmap pretty)) decl
+
+instance Pretty CHMIDef where
+    pretty (CHMIDefHead ident header params decl a) =
+        pretty header $$
+        pretty (CHMIDef ident params decl a)
+
+    pretty (CHMIDef ident params decl _) =
+        text "instance" <+>
+        identP ident <+>
+        pretty params $$
+        (chmBlock . vcat . (fmap pretty)) decl
+
+
 instance Pretty CHMStructDef where
     pretty (CHMStructDef header struct _) =
         pretty header $$
@@ -573,12 +598,16 @@ instance Pretty CHMHead where
         (if null constraints
             then mempty
             else space <>
-                 text ":" <>
+                 char ':' <>
                  space <>
                  (hsep . punctuate comma . map pretty) constraints <>
                  space)
 
-instance Pretty CHMConstr where
-    pretty (CHMConstr ident specss _) =
-        identP ident <>
+instance Pretty CHMParams where
+    pretty (CHMParams specss _) =
         (chmBrackets . hsep . punctuate comma) [pretty x | specs <- specss, x <- specs]
+
+instance Pretty CHMConstr where
+    pretty (CHMConstr ident specss a) =
+        identP ident <>
+        pretty (CHMParams specss a)

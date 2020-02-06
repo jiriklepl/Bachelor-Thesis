@@ -18,7 +18,12 @@
 		"path": "$ROOTPATH$/C-with-Hindley-Milner-Type-System/src/Language/C/Pretty.hs",
 		"bookmarks": [
 			{
-				"line": 554,
+				"line": 96,
+				"column": 1,
+				"label": "CHM Pretty CExtDecl"
+			},
+			{
+				"line": 557,
 				"column": 6,
 				"label": "CHM Pretty"
 			}
@@ -31,6 +36,11 @@
 				"line": 58,
 				"column": 0,
 				"label": "CHM Exports"
+			},
+			{
+				"line": 89,
+				"column": 4,
+				"label": "CHM AST CxtDecl"
 			},
 			{
 				"line": 819,
