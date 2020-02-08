@@ -11,7 +11,20 @@
 
         "files.associations": {
             "**/Parser.y": "haskell",
-            "**/Lexer.x": "haskell"
+            "**/Lexer.x": "haskell",
+            "*.chm": "c"
+        },
+        "[c]": {
+            "editor.tabSize": 8,
+            "editor.useTabStops": true,
+            "editor.insertSpaces": false,
+            "editor.detectIndentation": false
+        },
+        "[haskell]": {
+            "editor.useTabStops": false,
+            "editor.insertSpaces": true,
+            "editor.tabSize": 2,
+            "editor.detectIndentation": false
         }
     },
     "extensions": {
