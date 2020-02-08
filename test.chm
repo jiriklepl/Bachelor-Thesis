@@ -5,9 +5,9 @@
  */
 <T> // this is header -> instantiates types used in definition
 struct vector {
-    T *_content;
-    int _length;
-    int _capacity;
+	T *_content;
+	int _length;
+	int _capacity;
 };
 
 /*
@@ -15,18 +15,18 @@ struct vector {
  */
 <T, V : V = struct vector /*: <T>*/> // commented not yet parsing (but it is a type unification)
 V vectorise(T first) {
-    V x;
-    x._content = malloc(sizeof(T));
-    x._length = 1;
-    x._capacity = 1;
+	V x;
+	x._content = malloc(sizeof(T));
+	x._length = 1;
+	x._capacity = 1;
 
-    if (x._content == NULL)  {
-        exit(1);
-    }
+	if (x._content == NULL)  {
+	exit(1);
+	}
 
-    x._content[0] = first;
+	x._content[0] = first;
 
-    return x;
+	return x;
 }
 
 /*
@@ -35,14 +35,14 @@ V vectorise(T first) {
  * - addible to other T
  */
 class Num <T> {
-    T from_int(int a);
-    T add(T a, T b); // or operator+ as in C++, C# etc.
-    // etc...
+	T from_int(int a);
+	T add(T a, T b); // or operator+ as in C++, C# etc.
+	// etc...
 }
 
 instance Num <int> {
-    int from_int(int a) { return a; }
-    // etc...
+	int from_int(int a) { return a; }
+	// etc...
 }
 
 /*
@@ -53,12 +53,12 @@ instance Num <int> {
  */
 <T, V : V = vectorise(T), Num<T> >
 instance Num <V> {
-    V from_int(int a) { return vectorise(from_int(a)); }
-    // etc...
+	V from_int(int a) { return vectorise(from_int(a)); }
+	// etc...
 }
 
 int main(void) {
-    struct vector a = from_int(5); // a should be a vector of size 1 containing 5
-    free_content(a);
-    return 0;
+	struct vector a = from_int(5); // a should be a vector of size 1 containing 5
+	free_content(a);
+	return 0;
 }
