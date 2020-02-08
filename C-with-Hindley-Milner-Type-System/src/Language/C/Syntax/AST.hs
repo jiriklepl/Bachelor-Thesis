@@ -60,10 +60,11 @@ module Language.C.Syntax.AST (
   CHMStructDef, CHMStructureDef(..),
   CHMFunDef, CHMFunctionDef(..),
   CHMHead, CHMHeader(..),
-  CHMConstr, CHMConstraint(..),
   CHMCDef, CHMClassDef(..),
   CHMIDef, CHMInstanceDef(..),
-  CHMParams, CHMParameters(..)
+  CHMParams, CHMParameters(..),
+  CHMConstr, CHMConstraint(..),
+  CHMT, CHMType(..)
 ) where
 import Language.C.Syntax.Constants
 import Language.C.Syntax.Ops
@@ -837,11 +838,11 @@ data CHMInstanceDef a
     (CHMParameters a)
     [CExternalDeclaration a]       -- declarations
     a
-    | CHMIDef
-      Ident
-      (CHMParameters a)
-      [CExternalDeclaration a]       -- declarations
-      a
+  | CHMIDef
+    Ident
+    (CHMParameters a)
+    [CExternalDeclaration a]       -- declarations
+    a
     deriving (Show, Data,Typeable, Generic, Generic1 {-! ,CNode ,Functor ,Annotated !-})
 
 instance NFData a => NFData (CHMInstanceDef a)
@@ -850,7 +851,7 @@ type CHMStructDef = CHMStructureDef NodeInfo
 data CHMStructureDef a
   = CHMStructDef
     (CHMHeader a)
-    (CStructureUnion a)       -- structure itself
+    (CStructureUnion a)       -- C structure
     a
     deriving (Show, Data,Typeable, Generic, Generic1 {-! ,CNode ,Functor ,Annotated !-})
 
@@ -860,7 +861,7 @@ type CHMFunDef = CHMFunctionDef NodeInfo
 data CHMFunctionDef a
   = CHMFunDef
     (CHMHeader a)
-    (CFunctionDef a)          -- function itself
+    (CFunctionDef a)          -- C function
     a
     deriving (Show, Data,Typeable, Generic, Generic1 {-! ,CNode ,Functor ,Annotated !-})
 
@@ -880,7 +881,7 @@ instance NFData a => NFData (CHMHeader a)
 type CHMParams = CHMParameters NodeInfo
 data CHMParameters a
   = CHMParams
-    [[CDeclSpec]]                   -- type parameters
+    [CHMType a]               -- type parameters
     a
     deriving (Show, Data,Typeable, Generic, Generic1 {-! ,CNode ,Functor ,Annotated !-})
 
@@ -888,13 +889,29 @@ instance NFData a => NFData (CHMParameters a)
 
 type CHMConstr = CHMConstraint NodeInfo
 data CHMConstraint a
-  = CHMConstr
-    Ident                     -- type
-    [[CDeclSpec]]             -- type parameters
+  = CHMClassConstr
+    Ident                     -- class name
+    [CHMType a]               -- type parameters
+    a
+  | CHMUnifyConstr
+    (CHMType a)               -- left side of the unification
+    (CHMType a)               -- right side of the unification
     a
     deriving (Show, Data,Typeable, Generic, Generic1 {-! ,CNode ,Functor ,Annotated !-})
 
 instance NFData a => NFData (CHMConstraint a)
+
+type CHMT = CHMType NodeInfo
+data CHMType a
+  = CHMCType
+    [CDeclarationSpecifier a] -- C type
+    a
+  | CHMCDeclType
+    (CDeclarator a)          -- C decl (function, struct, anything...)
+    a
+    deriving (Show, Data,Typeable, Generic, Generic1 {-! ,CNode ,Functor ,Annotated !-})
+
+instance NFData a => NFData (CHMType a)
 
 -- Instances generated using derive-2.*
 -- GENERATED START
@@ -1633,14 +1650,18 @@ instance CNode t1 => Pos (CHMHeader t1) where
 
 -- Constraints start from here:
 instance Annotated CHMConstraint where
-        annotation (CHMConstr _ _ n) = n
-        amap f (CHMConstr a1 a2 a3) = CHMConstr a1 a2 (f a3)
+        annotation (CHMClassConstr _ _ n) = n
+        annotation (CHMUnifyConstr _ _ n) = n
+        amap f (CHMClassConstr a1 a2 a3) = CHMClassConstr a1 (amap f `map` a2) (f a3)
+        amap f (CHMUnifyConstr a1 a2 a3) = CHMUnifyConstr (amap f a1) (amap f a2)  (f a3)
 
 instance Functor CHMConstraint where
-        fmap f (CHMConstr a1 a2 a3) = CHMConstr a1 a2 (f a3)
+        fmap f (CHMClassConstr a1 a2 a3) = CHMClassConstr a1 (fmap f `map` a2) (f a3)
+        fmap f (CHMUnifyConstr a1 a2 a3) = CHMUnifyConstr (fmap f a1) (fmap f a2)  (f a3)
 
 instance CNode t1 => CNode (CHMConstraint t1) where
-        nodeInfo (CHMConstr _ _ n) = nodeInfo n
+        nodeInfo (CHMClassConstr _ _ n) = nodeInfo n
+        nodeInfo (CHMUnifyConstr _ _ n) = nodeInfo n
 
 instance CNode t1 => Pos (CHMConstraint t1) where
         posOf x = posOf (nodeInfo x)
@@ -1648,13 +1669,31 @@ instance CNode t1 => Pos (CHMConstraint t1) where
 -- Parameters start from here:
 instance Annotated CHMParameters where
         annotation (CHMParams _ n) = n
-        amap f (CHMParams a1 a3) = CHMParams a1 (f a3)
+        amap f (CHMParams a1 a2) = CHMParams (amap f `map` a1) (f a2)
 
 instance Functor CHMParameters where
-        fmap f (CHMParams a1 a3) = CHMParams a1 (f a3)
+        fmap f (CHMParams a1 a2) = CHMParams (fmap f `map` a1) (f a2)
 
 instance CNode t1 => CNode (CHMParameters t1) where
         nodeInfo (CHMParams _ n) = nodeInfo n
 
 instance CNode t1 => Pos (CHMParameters t1) where
+        posOf x = posOf (nodeInfo x)
+
+-- Types start from here:
+instance Annotated CHMType where
+        annotation (CHMCType _ n) = n
+        annotation (CHMCDeclType _ n) = n
+        amap f (CHMCType a1 a2) = CHMCType (amap f `map` a1) (f a2)
+        amap f (CHMCDeclType a1 a2) = CHMCDeclType (amap f a1) (f a2)
+
+instance Functor CHMType where
+        fmap f (CHMCType a1 a2) = CHMCType (fmap f `map` a1) (f a2)
+        fmap f (CHMCDeclType a1 a2) = CHMCDeclType (fmap f a1) (f a2)
+
+instance CNode t1 => CNode (CHMType t1) where
+        nodeInfo (CHMCType _ n) = nodeInfo n
+        nodeInfo (CHMCDeclType _ n) = nodeInfo n
+
+instance CNode t1 => Pos (CHMType t1) where
         posOf x = posOf (nodeInfo x)

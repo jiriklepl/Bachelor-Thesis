@@ -2217,11 +2217,17 @@ chm_constraint_list
 chm_constraint :: { CHMConstr }
 chm_constraint
   : ident '<' chm_type_list '>'
-    {% withNodeInfo $1 $ CHMConstr $1 (reverse $3)  }
+    {% withNodeInfo $1 $ CHMClassConstr $1 (reverse $3)  }
+  | chm_type '=' chm_type
+    {% withNodeInfo $1 $ CHMUnifyConstr $1 $3  }
 
-chm_type_list :: { Reversed [[CDeclSpec]] }
-  : type_specifier { singleton $1 }
-  | chm_type_list ',' type_specifier { $1 `snoc` $3 }
+chm_type_list :: { Reversed [CHMT] }
+  : chm_type { singleton $1 }
+  | chm_type_list ',' chm_type { $1 `snoc` $3 }
+
+chm_type :: { CHMT }
+  : type_specifier {% withNodeInfo $1 $ CHMCType $1 }
+  | identifier_declarator {% withNodeInfo $1 $ CHMCDeclType $ reverseDeclr $1 }
 
 {
 

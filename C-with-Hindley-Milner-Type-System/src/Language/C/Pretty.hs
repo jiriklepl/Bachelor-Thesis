@@ -584,7 +584,8 @@ instance Pretty CHMIDef where
 instance Pretty CHMStructDef where
     pretty (CHMStructDef header struct _) =
         pretty header $$
-        pretty struct
+        pretty struct <>
+        char ';'
 
 instance Pretty CHMFunDef where
     pretty (CHMFunDef header func _) =
@@ -604,10 +605,23 @@ instance Pretty CHMHead where
                  space)
 
 instance Pretty CHMParams where
-    pretty (CHMParams specss _) =
-        (chmBrackets . hsep . punctuate comma) [pretty x | specs <- specss, x <- specs]
+    pretty (CHMParams types _) =
+        chmBrackets . hsep . punctuate comma $ pretty <$> types
 
 instance Pretty CHMConstr where
-    pretty (CHMConstr ident specss a) =
+    pretty (CHMClassConstr ident types a) =
         identP ident <>
-        pretty (CHMParams specss a)
+        pretty (CHMParams types a)
+
+    pretty (CHMUnifyConstr type_l type_r _) =
+        pretty type_l <+>
+        char '=' <+>
+        pretty type_r
+
+instance Pretty CHMT where
+    pretty (CHMCType specs _) =
+        hsep $ pretty <$> specs
+
+
+    pretty (CHMCDeclType decl _) =
+        pretty decl
