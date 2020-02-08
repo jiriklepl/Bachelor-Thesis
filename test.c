@@ -1,5 +1,4 @@
 // CHM test source code
-#include <stdio.h>
 
 /*
  * This is pretty standard vector
@@ -14,7 +13,7 @@ struct vector {
 /*
  * Makes a vector of one element
  */
-<T, V /*: V = struct vector : <T>*/> // commented not yet parsing (but it is a type unification)
+<T, V : V = struct vector /*: <T>*/> // commented not yet parsing (but it is a type unification)
 V vectorise(T first) {
     V x;
     x._content = malloc(sizeof(T));
@@ -52,13 +51,14 @@ instance Num <int> {
  * then V is also numeric (we can add two vectors)
  * vectorise(T) is a pseudo-call where all we care about is returned type
  */
-<T, V : /* V = vectorise(T),*/ Num<T> > // commented not yet parsing
+<T, V : V = vectorise(T), Num<T> >
 instance Num <V> {
     V from_int(int a) { return vectorise(from_int(a)); }
     // etc...
 }
 
 int main(void) {
-    int a = from_int(5);
+    struct vector a = from_int(5); // a should be a vector of size 1 containing 5
+    free_content(a);
     return 0;
 }
