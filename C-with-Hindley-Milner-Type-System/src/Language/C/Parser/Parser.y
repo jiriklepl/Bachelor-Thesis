@@ -2193,10 +2193,10 @@ chm_header
   : '<' newtype_list '>'
     {% withNodeInfo $2 $ CHMHead (reverse $2) [] }
 
-  | '<' newtype_list ':' chm_constraint_list '>'
+  | '<' newtype_list '|' chm_constraint_list '>'
     {% withNodeInfo $2 $ CHMHead (reverse $2) (reverse $4) }
 
-  | '<' ':' chm_constraint_list '>'
+  | '<' '|' chm_constraint_list '>'
     {% enterScope >> (withNodeInfo $3 $ CHMHead [] (reverse $3)) }
 
 

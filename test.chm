@@ -13,15 +13,15 @@ struct vector {
 /*
  * Makes a vector of one element
  */
-<T, V : V = struct vector /*: <T>*/> // commented not yet parsing (but it is a type unification)
+<T, V | V = const struct vector /*: <T>*/> // commented not yet parsing (but it is a type unification)
 V vectorise(T first) {
 	V x;
 	x._content = malloc(sizeof(T));
 	x._length = 1;
 	x._capacity = 1;
 
-	if (x._content == NULL)  {
-	exit(1);
+	if (x._content == NULL) {
+		exit(1);
 	}
 
 	x._content[0] = first;
@@ -51,14 +51,14 @@ instance Num <int> {
  * then V is also numeric (we can add two vectors)
  * vectorise(T) is a pseudo-call where all we care about is returned type
  */
-<T, V : V = vectorise(T), Num<T> >
+<T, V | V = vectorise(T), Num<T> >
 instance Num <V> {
 	V from_int(int a) { return vectorise(from_int(a)); }
 	// etc...
 }
 
 int main(void) {
-	struct vector a = from_int(5); // a should be a vector of size 1 containing 5
+	struct vector a = from_int(5); // a should be a vector of size 1 containing 5 (int)
 	free_content(a);
 	return 0;
 }

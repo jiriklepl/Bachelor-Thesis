@@ -599,7 +599,7 @@ instance Pretty CHMHead where
         (if null constraints
             then mempty
             else space <>
-                 char ':' <>
+                 char '|' <>
                  space <>
                  (hsep . punctuate comma . map pretty) constraints <>
                  space)
