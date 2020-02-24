@@ -51,7 +51,7 @@ gccParseCPPArgs :: [String] -> Either String (CppArgs, [String])
 gccParseCPPArgs args =
     case mungeArgs ((Nothing,Nothing,RList.empty),(RList.empty,RList.empty)) args of
         Left err                   -> Left err
-        Right ((Nothing,_,_),_)  -> Left "No .c / .hc / .h source file given"
+        Right ((Nothing,_,_),_)  -> Left "No .c / .hc / .h / .chm source file given"
         Right ((Just input_file,output_file_opt,cpp_opts),(extra_args,other_args))
             -> Right ((rawCppArgs (RList.reverse extra_args) input_file)
                       { outputFile = output_file_opt, cppOptions = RList.reverse cpp_opts },
@@ -80,7 +80,7 @@ gccParseCPPArgs args =
             (cpp_opt:rest)     | Just (opt,rest') <- getArgOpt cpp_opt rest
                                -> mungeArgs ((inp,out,cpp_opts `snoc` opt),unparsed) rest'
 
-            (cfile:rest)       | any (`isSuffixOf` cfile) (words ".c .hc .h")
+            (cfile:rest)       | any (`isSuffixOf` cfile) (words ".c .hc .h .chm")
                                -> if isJust inp
                                    then Left "two input files given"
                                    else mungeArgs ((Just cfile,out,cpp_opts),unparsed) rest
@@ -103,6 +103,7 @@ buildCppArgs :: CppArgs -> [String]
 buildCppArgs (CppArgs options extra_args _tmpdir input_file output_file_opt) =
        (concatMap tOption options)
     ++ outputFileOpt
+    ++ ["-x", "c"]
     ++ ["-E", input_file]
     ++ extra_args
     where
