@@ -30,6 +30,31 @@
 		]
 	},
 	{
+		"path": "$ROOTPATH$/C-with-Hindley-Milner-Type-System/src/Language/C/Syntax/AST.hs",
+		"bookmarks": [
+			{
+				"line": 58,
+				"column": 0,
+				"label": "CHM Exports"
+			},
+			{
+				"line": 89,
+				"column": 4,
+				"label": "CHM AST CxtDecl"
+			},
+			{
+				"line": 819,
+				"column": 8,
+				"label": "CHM AST"
+			},
+			{
+				"line": 1557,
+				"column": 4,
+				"label": "CHM instances"
+			}
+		]
+	},
+	{
 		"path": "$ROOTPATH$/C-with-Hindley-Milner-Type-System/src/Language/C/Parser/Lexer.x",
 		"bookmarks": [
 			{
