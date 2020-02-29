@@ -2193,10 +2193,10 @@ chm_header
   : '<' newtype_list '>'
     {% withNodeInfo $2 $ CHMHead (reverse $2) [] }
 
-  | '<' newtype_list '|' chm_constraint_list '>'
+  | '<' newtype_list ':' chm_constraint_list '>'
     {% withNodeInfo $2 $ CHMHead (reverse $2) (reverse $4) }
 
-  | '<' '|' chm_constraint_list '>'
+  | '<' ':' chm_constraint_list '>'
     {% enterScope >> (withNodeInfo $3 $ CHMHead [] (reverse $3)) }
 
 
@@ -2226,6 +2226,14 @@ chm_type_list :: { Reversed [CHMT] }
   | chm_type_list ',' chm_type { $1 `snoc` $3 }
 
 chm_type :: { CHMT }
+  : chm_param_type { $1 }
+  | chm_simple_type { $1 }
+
+chm_param_type :: { CHMT }
+chm_param_type
+  : chm_simple_type ':' chm_param_list {% withNodeInfo $1 $ CHMParType $1 $3 }
+
+chm_simple_type :: { CHMT }
   : type_specifier {% withNodeInfo $1 $ CHMCType $1 }
   | identifier_declarator {% withNodeInfo $1 $ CHMCDeclType $ reverseDeclr $1 }
 

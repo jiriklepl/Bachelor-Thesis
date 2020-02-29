@@ -240,6 +240,7 @@ instance Functor CDeclaration where
 type CDeclr = CDeclarator NodeInfo
 data CDeclarator a
   = CDeclr (Maybe Ident) [CDerivedDeclarator a] (Maybe (CStringLiteral a)) [CAttribute a] a
+  | CHMDeclr (CDeclarator a) (CHMParameters a) a
     deriving (Show, Data,Typeable, Generic, Generic1 {-! ,CNode ,Functor ,Annotated !-})
 
 instance NFData a => NFData (CDeclarator a)
@@ -908,6 +909,10 @@ data CHMType a
     a
   | CHMCDeclType
     (CDeclarator a)          -- C decl (function, struct, anything...)
+    a
+  | CHMParType
+    (CHMType a)
+    (CHMParameters a)
     a
     deriving (Show, Data,Typeable, Generic, Generic1 {-! ,CNode ,Functor ,Annotated !-})
 
@@ -1684,16 +1689,20 @@ instance CNode t1 => Pos (CHMParameters t1) where
 instance Annotated CHMType where
         annotation (CHMCType _ n) = n
         annotation (CHMCDeclType _ n) = n
+        annotation (CHMParType _ _ n) = n
         amap f (CHMCType a1 a2) = CHMCType (amap f `map` a1) (f a2)
         amap f (CHMCDeclType a1 a2) = CHMCDeclType (amap f a1) (f a2)
+        amap f (CHMParType a1 a2 a3) = CHMParType (amap f a1) (amap f a2) (f a3)
 
 instance Functor CHMType where
         fmap f (CHMCType a1 a2) = CHMCType (fmap f `map` a1) (f a2)
         fmap f (CHMCDeclType a1 a2) = CHMCDeclType (fmap f a1) (f a2)
+        fmap f (CHMParType a1 a2 a3) = CHMParType (fmap f a1) (fmap f a2) (f a3)
 
 instance CNode t1 => CNode (CHMType t1) where
         nodeInfo (CHMCType _ n) = nodeInfo n
         nodeInfo (CHMCDeclType _ n) = nodeInfo n
+        nodeInfo (CHMParType _ _ n) = nodeInfo n
 
 instance CNode t1 => Pos (CHMType t1) where
         posOf x = posOf (nodeInfo x)

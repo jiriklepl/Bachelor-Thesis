@@ -599,7 +599,7 @@ instance Pretty CHMHead where
         (if null constraints
             then mempty
             else space <>
-                 char '|' <>
+                 char ':' <>
                  space <>
                  (hsep . punctuate comma . map pretty) constraints <>
                  space)
@@ -622,6 +622,10 @@ instance Pretty CHMT where
     pretty (CHMCType specs _) =
         hsep $ pretty <$> specs
 
-
     pretty (CHMCDeclType decl _) =
         pretty decl
+
+    pretty (CHMParType decl params _) =
+        pretty decl <+>
+        char ':' <+>
+        pretty params
