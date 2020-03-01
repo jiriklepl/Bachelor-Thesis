@@ -90,6 +90,7 @@
         "offsetof",
         "oldname",
         "parens",
+        "polytypes",
         "prec",
         "rappend",
         "rappendr",
