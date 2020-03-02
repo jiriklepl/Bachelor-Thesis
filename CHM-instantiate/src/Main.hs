@@ -13,4 +13,4 @@ module Main where
            Right ast      -> return ast
 
     printMyAST :: CTranslUnit -> IO ()
-    printMyAST = print . pretty
+    printMyAST = print
