@@ -7,4 +7,4 @@ clean:
 	cabal clean
 
 run:
-	cabal run CHM-test
+	cabal run CHM-instantiate
