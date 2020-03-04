@@ -25,6 +25,7 @@
 -----------------------------------------------------------------------------
 
 module TypingHaskellInHaskell where
+
 import Data.List(nub, (\\), intersect, union, partition)
 import Control.Monad(msum)
 import qualified Control.Monad.Fail as Fail
