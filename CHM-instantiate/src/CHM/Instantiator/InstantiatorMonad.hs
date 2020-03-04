@@ -1,4 +1,5 @@
 module InstantiatorMonad where
+
 import Control.Monad.State
 
 data IState = IState
