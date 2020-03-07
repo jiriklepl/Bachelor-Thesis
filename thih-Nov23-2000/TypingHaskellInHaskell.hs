@@ -45,20 +45,20 @@ enumId n = "v" ++ show n
 -----------------------------------------------------------------------------
 
 data Kind  = Star | Kfun Kind Kind
-             deriving Eq
+             deriving (Eq, Show)
 
 -----------------------------------------------------------------------------
 -- Type:		Types
 -----------------------------------------------------------------------------
 
 data Type  = TVar Tyvar | TCon Tycon | TAp  Type Type | TGen Int
-             deriving Eq
+             deriving (Eq, Show)
 
 data Tyvar = Tyvar Id Kind
-             deriving Eq
+             deriving (Eq, Show)
 
 data Tycon = Tycon Id Kind
-             deriving Eq
+             deriving (Eq, Show)
 
 tUnit    = TCon (Tycon "()" Star)
 tChar    = TCon (Tycon "Char" Star)
@@ -172,10 +172,10 @@ match t1 t2                 = fail "types do not match"
 -----------------------------------------------------------------------------
 
 data Qual t = [Pred] :=> t
-              deriving Eq
+              deriving (Eq, Show)
 
 data Pred   = IsIn Id Type
-              deriving Eq
+              deriving (Eq, Show)
 
 instance Types t => Types (Qual t) where
   apply s (ps :=> t) = apply s ps :=> apply s t
@@ -329,7 +329,7 @@ scEntail ce ps p = any (p `elem`) (map (bySuper ce) ps)
 -----------------------------------------------------------------------------
 
 data Scheme = Forall [Kind] (Qual Type)
-              deriving Eq
+              deriving (Eq, Show)
 
 instance Types Scheme where
   apply s (Forall ks qt) = Forall ks (apply s qt)
@@ -348,7 +348,7 @@ toScheme t     = Forall [] ([] :=> t)
 -- Assump:	Assumptions
 -----------------------------------------------------------------------------
 
-data Assump = Id :>: Scheme
+data Assump = Id :>: Scheme deriving(Show)
 
 instance Types Assump where
   apply s (i :>: sc) = i :>: (apply s sc)
