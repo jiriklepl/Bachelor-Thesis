@@ -6,7 +6,7 @@
 
                  Pacific Software Research Center
            Department of Computer Science and Engineering
-        Oregon Graduate Insitute of Science and Technology
+        Oregon Graduate Institute of Science and Technology
 
              Thanksgiving Day 2000 (November 23, 2000)
 
@@ -38,7 +38,7 @@ The following list describes each of the files in the distribution:
     program in the paper is type correct (according to Hugs 98,
     and according to the type checker itself; see below).
 
-  A more realistic version of the typchecker, broken in to separate
+  A more realistic version of the typechecker, broken in to separate
   modules (roughly following the structure of the paper), together
   with additional code used for debugging and pretty printing.
 
