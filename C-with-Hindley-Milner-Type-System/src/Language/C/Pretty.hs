@@ -615,7 +615,7 @@ instance Pretty CHMConstr where
 
     pretty (CHMUnifyConstr type_l type_r _) =
         pretty type_l <+>
-        char '=' <+>
+        char '~' <+>
         pretty type_r
 
 instance Pretty CHMT where

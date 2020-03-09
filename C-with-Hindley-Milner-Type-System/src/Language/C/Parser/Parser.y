@@ -2218,7 +2218,7 @@ chm_constraint :: { CHMConstr }
 chm_constraint
   : ident '<' chm_type_list '>'
     {% withNodeInfo $1 $ CHMClassConstr $1 (reverse $3)  }
-  | chm_type '=' chm_type
+  | chm_type '~' chm_type
     {% withNodeInfo $1 $ CHMUnifyConstr $1 $3  }
 
 chm_type_list :: { Reversed [CHMT] }
