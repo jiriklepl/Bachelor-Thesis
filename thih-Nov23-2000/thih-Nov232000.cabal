@@ -3,7 +3,7 @@ cabal-version:       >=1.10
 -- init'.  For further documentation, see
 -- http://haskell.org/cabal/users-guide/
 
-name:                thih-Nov232000
+name:                chm-thih
 version:             0.1.0.0
 -- synopsis:
 -- description:
@@ -18,10 +18,10 @@ build-type:          Simple
 extra-source-files:  CHANGELOG.md, Readme
 
 library
-  hs-source-dirs: src
-  exposed-modules: TypingHaskellInHaskell
+  default-language:  Haskell2010
+  build-depends:     base >= 4.13 && < 5
+  hs-source-dirs:    src
+  exposed-modules:   TypingHaskellInHaskell
   -- other-modules:
   -- other-extensions:
-  build-depends:       base >= 4.13 && < 5
   -- hs-source-dirs:
-  default-language:    Haskell2010

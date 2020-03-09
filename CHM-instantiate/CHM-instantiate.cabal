@@ -16,8 +16,8 @@ extra-source-files:  ChangeLog.md
 cabal-version:       >=1.10
 
 executable CHM-instantiate
-  main-is:             Main.hs
+  main-is:           Main.hs
   -- other-modules:
   -- other-extensions:
-  build-depends:       base >= 4.12 && < 5, language-chm
-  hs-source-dirs:      src
+  build-depends:     base >= 4.12 && < 5, language-chm
+  hs-source-dirs:    src
