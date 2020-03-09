@@ -1,3 +1,4 @@
 packages: C-with-Hindley-Milner-Type-System
           CHM-instantiate
           thih-Nov23-2000
+          AST-to-THIH
