@@ -1,8 +1,6 @@
 {-# LANGUAGE TypeSynonymInstances, FlexibleInstances, FlexibleContexts #-}
 module CHM.Transform where
 
-import Data.Either
-
 import TypingHaskellInHaskell
 import Language.C.Data
 import Language.C.Syntax
@@ -22,7 +20,6 @@ instance Transform CExtDecl where
   transform  (CHMCDefExt a) = transform a
   transform  (CHMIDefExt a) = transform a
   transform  (CAsmExt  a _) = transform a
-
 
 class FindReturn a where
   findReturn :: a -> [Expr]
@@ -100,9 +97,6 @@ instance Transform CExpr where
       transform aExpr ++
       transform iExpr
     -- TODO
-
-
-
 
 instance Transform CFunDef where
   transform (CFunDef specs decl decls stmt _) =
