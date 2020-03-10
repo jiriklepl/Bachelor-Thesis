@@ -73,9 +73,10 @@ ternaryOpFunc :: Id
 elvisOpFunc   :: Id
 indexOpFunc   :: Id
 
+-- TODO: maybe rename these
 commaOpFunc   = ","
 ternaryOpFunc = ":?"
-elvisOpFunc   = ":?"
+elvisOpFunc   = "?"
 indexOpFunc   = "[]"
 
 transformExpr :: CExpr -> TState Expr
