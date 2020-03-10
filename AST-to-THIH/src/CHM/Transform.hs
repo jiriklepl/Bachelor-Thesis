@@ -17,7 +17,6 @@ instance Transform CTranslUnit where
     decls <- transform extDecls
     return $ decl ++ decls
 
-
 instance Transform CExtDecl where
   transform  (CDeclExt a)   = transform a
   transform  (CFDefExt a)   = transform a
@@ -78,6 +77,9 @@ commaOpFunc   = ","
 ternaryOpFunc = ":?"
 elvisOpFunc   = "?"
 indexOpFunc   = "[]"
+
+ref :: Expr -> Expr
+deref :: Expr -> Expr
 
 transformExpr :: CExpr -> TState Expr
 transformExpr cExpr = let
@@ -153,10 +155,18 @@ transformExpr cExpr = let
       fTrans
       (foldl Ap (Var tuple) eTrans)
   -- TODO:
-  -- -- sExpr->mId
-  -- CMember sExpr mId true  _ ->
-  -- -- sExpr.mId
-  -- CMember sExpr mId false  _ ->
+  -- sExpr->mId
+  CMember sExpr mId true  _ -> do
+    member <- (getMember mId)
+    return $ Ap
+      (Var member)
+      (deref sExpr)
+  -- sExpr.mId
+  CMember sExpr mId false  _ -> do
+    member <- (getMember mId)
+    return $ Ap
+      (Var member)
+      sExpr
   -- CVar
   -- CConst
   -- CCompoundList
