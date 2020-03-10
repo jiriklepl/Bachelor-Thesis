@@ -433,6 +433,7 @@ data Literal = LitInt  Integer
              | LitChar Char
              | LitRat  Rational
              | LitStr  String
+             deriving(Show)
 
 tiLit            :: Literal -> TI ([Pred],Type)
 tiLit (LitChar _) = return ([], tChar)
@@ -452,6 +453,7 @@ data Pat        = PVar Id
                 | PLit Literal
                 | PNpk Id Integer
                 | PCon Assump [Pat]
+                deriving(Show)
 
 tiPat :: Pat -> TI ([Pred], [Assump], Type)
 
@@ -490,6 +492,7 @@ data Expr = Var   Id
           | Const Assump
           | Ap    Expr Expr
           | Let   BindGroup Expr
+          deriving(Show)
 
 tiExpr                       :: Infer Expr Type
 tiExpr ce as (Var i)          = do sc         <- find i as
