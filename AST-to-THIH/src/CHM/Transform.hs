@@ -81,13 +81,20 @@ indexOpFunc   = "[]"
 transformExpr :: CExpr -> TState Expr
 transformExpr cExpr = let
     ap2 f a b = Ap (Ap f a) b
-    ap3 f a b c = Ap (Ap (Ap f a) b)
-  in case CExpr of
+    ap3 f a b c = Ap (Ap (Ap f a) b) c
+
+    transforms [] = return []
+    transforms (hExpr:tExprs) = do
+      hTrans  <- transformExpr hExpr
+      tTranss <- transforms tExprs
+      return (hTrans:tTranss)
+  in case cExpr of
   -- exprs is guaranteed to have at least 2 elements
-  CComma exprs _ ->
+  CComma exprs _ -> do
+    transs <- (transforms exprs)
     return $ foldl1
       (\a b -> Ap (Ap (Var "commaOpFunc") a) b)
-      (transformExpr <$> exprs)
+      transs
   CAssign op lExpr rExpr _ -> do
     lTrans <- (transformExpr lExpr)
     rTrans <- (transformExpr rExpr)
@@ -139,18 +146,23 @@ transformExpr cExpr = let
       iTrans
   CCall func exprs _ -> do
     tuple <- getTuple (length exprs)
-    let
-      transforms [] = return []
-      transforms (hExpr:tExprs) = do
-        hTrans  <- transformExpr expr
-        tTranss <- transforms tExprs
-        return (hTrans:tTranss)
-    in do
-      fTrans <- transform func
-      eTrans <- transforms exprs
-      return $ Ap
-        fTrans
-        (foldl Ap (Var tuple) eTrans)
+    fTrans <- transformExpr func
+    eTrans <- transforms exprs
+    return $ Ap
+      fTrans
+      (foldl Ap (Var tuple) eTrans)
+  -- TODO:
+  -- -- sExpr->mId
+  -- CMember sExpr mId true  _ ->
+  -- -- sExpr.mId
+  -- CMember sExpr mId false  _ ->
+  -- CVar
+  -- CConst
+  -- CCompoundList
+  -- CGenericSelection
+  -- CStatExpr
+  -- CLabAddrExpr
+  -- CBuiltinExpr
 
 instance Transform CExpr where
   -- the top-most binding should be first recursively (in comparison that would be the binding of ==, then operands and then their child bindings)
