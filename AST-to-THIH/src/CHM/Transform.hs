@@ -106,35 +106,51 @@ transformExpr cExpr = let
       tTrans
       fTrans
   -- this is elvis (supported by gnu)
-  CCond cExpr (Nothing) fExpr _ ->
+  CCond cExpr (Nothing) fExpr _ -> do
+    cTrans <- (transformExpr cExpr)
+    fTrans <- (transformExpr fExpr)
     return $ ap2
       (Var elvisOpFunc)  -- TODO from here...
-      (transformExpr cExpr)
-      (transformExpr fExpr)
-  CBinary op lExpr rExpr _ ->
+      cTrans
+      fTrans
+  CBinary op lExpr rExpr _ -> do
+    lTrans <- (transformExpr lExpr)
+    rTrans <- (transformExpr rExpr)
     return $ ap2
       (Var $ operatorFunction op)
-      (transformExpr lExpr)
-      (transformExpr rExpr)
+      lTrans
+      rTrans
   -- TODO: CCast
-  CUnary op expr _ ->
+  CUnary op expr _ -> do
+    trans <- (transformExpr expr)
     return $ Ap
       (Var $ operatorFunction op)
-      (transform expr)
+      trans
   -- TODO: CSizeofExpr
   -- TODO: CSizeofType
   -- ditto align
   -- TODO: CComplexReal
-  CIndex aExpr iExpr _ ->
+  CIndex aExpr iExpr _ -> do
+    aTrans <- (transformExpr aExpr)
+    iTrans <- (transformExpr iExpr)
     return $ ap2
       (Var indexOpFunc)
-      (transformExpr aExpr)
-      (transformExpr iExpr)
+      aTrans
+      iTrans
   CCall func exprs _ -> do
     tuple <- getTuple (length exprs)
-    return $ Ap
-      (transform func)
-      (foldl Ap (Var tuple) (transform <$> exprs))
+    let
+      transforms [] = return []
+      transforms (hExpr:tExprs) = do
+        hTrans  <- transformExpr expr
+        tTranss <- transforms tExprs
+        return (hTrans:tTranss)
+    in do
+      fTrans <- transform func
+      eTrans <- transforms exprs
+      return $ Ap
+        fTrans
+        (foldl Ap (Var tuple) eTrans)
 
 instance Transform CExpr where
   -- the top-most binding should be first recursively (in comparison that would be the binding of ==, then operands and then their child bindings)
