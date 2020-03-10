@@ -59,8 +59,8 @@ getMember id@(Ident sId _ _) =
   let
     translateId = ".get:" ++ sId
     translateClass = "@Has:" ++ sId
-    sVar = Tyvar "a" Star
-    mVar = Tyvar "b" Star
+    sVar = Tyvar "s" Star
+    mVar = Tyvar "m" Star
     sTVar = TVar sVar
     mTVar = TVar mVar
   in do
@@ -79,4 +79,3 @@ getMember id@(Ident sId _ _) =
         , createdClasses = id `Set.insert` cs
         }
       return translateId
-
