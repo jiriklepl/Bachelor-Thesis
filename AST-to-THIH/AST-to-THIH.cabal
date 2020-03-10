@@ -22,6 +22,5 @@ library
   build-depends:     base >=4.13 && <4.14, language-chm, chm-thih, containers >=0.6 && <1, mtl >= 2.2 && <3
   hs-source-dirs:    src
   exposed-modules:   CHM.Transform
-  -- other-modules:
+  other-modules:     CHM.TransformMonad
   -- other-extensions:
-  -- hs-source-dirs:
