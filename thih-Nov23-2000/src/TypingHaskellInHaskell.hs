@@ -432,6 +432,7 @@ type Infer e t = ClassEnv -> [Assump] -> e -> TI ([Pred], t)
 data Literal = LitInt  Integer
              | LitChar Char
              | LitRat  Rational
+             | LitFloat String  -- (CHM) added like this to mirror the Language.C definition
              | LitStr  String
              deriving(Show)
 
@@ -442,6 +443,7 @@ tiLit (LitInt _)  = do v <- newTVar Star
 tiLit (LitStr _)  = return ([], tString)
 tiLit (LitRat _)  = do v <- newTVar Star
                        return ([IsIn "Fractional" v], v)
+tiLit (LitFloat _)  = return ([], tFloat)  -- (CHM)
 
 -----------------------------------------------------------------------------
 -- Pat:		Patterns
