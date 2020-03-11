@@ -4,6 +4,7 @@ module CHM.Transform where
 import TypingHaskellInHaskell
 import Language.C.Data
 import Language.C.Syntax
+import Language.C.Data.Ident (Ident(..))
 
 import CHM.TransformMonad
 
@@ -12,9 +13,9 @@ class Transform a where
 
 instance Transform CTranslUnit where
   transform (CTranslUnit [] _) = return []
-  transform (CTranslUnit (extDecl:extDecls) _) = do
+  transform (CTranslUnit (extDecl:extDecls) a) = do
     decl <- transform extDecl
-    decls <- transform extDecls
+    decls <- transform (CTranslUnit extDecls a)
     return $ decl ++ decls
 
 instance Transform CExtDecl where
@@ -64,23 +65,6 @@ instance FindReturn CStat where
 --   findReturn CBlockDecl  -- TODO:
 --   findReturn CNestedFunDef  -- TODO:
 
-class OperatorFunction a where
-  operatorFunction :: a -> Id
-
-commaOpFunc   :: Id  -- takes two things and returns the second
-ternaryOpFunc :: Id
-elvisOpFunc   :: Id
-indexOpFunc   :: Id
-
--- TODO: maybe rename these
-commaOpFunc   = ","
-ternaryOpFunc = ":?"
-elvisOpFunc   = "?"
-indexOpFunc   = "[]"
-
-ref :: Expr -> Expr
-deref :: Expr -> Expr
-
 transformExpr :: CExpr -> TState Expr
 transformExpr cExpr = let
     ap2 f a b = Ap (Ap f a) b
@@ -96,7 +80,7 @@ transformExpr cExpr = let
   CComma exprs _ -> do
     transs <- (transforms exprs)
     return $ foldl1
-      (\a b -> Ap (Ap (Var "commaOpFunc") a) b)
+      (\a b -> Ap (Ap (Var commaOpFunc) a) b)
       transs
   CAssign op lExpr rExpr _ -> do
     lTrans <- (transformExpr lExpr)
@@ -120,7 +104,7 @@ transformExpr cExpr = let
     cTrans <- (transformExpr cExpr)
     fTrans <- (transformExpr fExpr)
     return $ ap2
-      (Var elvisOpFunc)  -- TODO from here...
+      (Var elvisOpFunc)
       cTrans
       fTrans
   CBinary op lExpr rExpr _ -> do
@@ -154,21 +138,38 @@ transformExpr cExpr = let
     return $ Ap
       fTrans
       (foldl Ap (Var tuple) eTrans)
-  -- TODO:
   -- sExpr->mId
   CMember sExpr mId true  _ -> do
     member <- (getMember mId)
+    sTrans <- transformExpr sExpr
     return $ Ap
       (Var member)
-      (deref sExpr)
+      (deref sTrans)
   -- sExpr.mId
   CMember sExpr mId false  _ -> do
     member <- (getMember mId)
+    sTrans <- transformExpr sExpr
     return $ Ap
       (Var member)
-      sExpr
-  -- CVar
-  -- CConst
+      sTrans
+  CVar (Ident sId _ _) _ ->
+    return $ Var sId
+  -- CConst is literal
+  -- TODO: check it
+  CConst (CIntConst (CInteger i _ _) _) ->
+    return $ Lit $ LitInt i
+  -- TODO: do something with flags in char/string literals
+  CConst (CCharConst (CChar c _) _) ->
+    return $ Lit $ LitChar c
+  -- TODO: this is temporary solution
+  -- (makes the rest of the characters pointless)
+  CConst (CCharConst (CChars (c:_) _) _) ->
+    return $ Lit $ LitChar c
+  CConst (CFloatConst (CFloat s) _) ->
+    return $ Lit $ LitFloat s
+  CConst (CStrConst (CString s _) _) ->
+    return $ Lit $ LitStr s
+  -- TODO: from here on
   -- CCompoundList
   -- CGenericSelection
   -- CStatExpr
@@ -179,8 +180,12 @@ instance Transform CExpr where
   -- the top-most binding should be first recursively (in comparison that would be the binding of ==, then operands and then their child bindings)
   transform cExpr = do
     expr <- transformExpr cExpr
-    return [([],[[("TODO", [([],expr)])]])] -- TODO
+    return [([],[[("TODO", [([],expr)])]])]  -- TODO
 
 instance Transform CFunDef where
   transform (CFunDef specs decl decls stmt _) =
-    transform stmt
+    transform stmt  -- TODO
+
+instance Transform CDecl where  -- TODO
+  transform (CCDecl cDeclSpecs cDecls _) = []
+  transform (CStaticAssert cExpr cStrLit _) = []
