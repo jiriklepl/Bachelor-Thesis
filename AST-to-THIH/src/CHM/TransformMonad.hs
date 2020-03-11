@@ -1,6 +1,15 @@
 module CHM.TransformMonad
   ( TransformMonad(..)
   , TState
+  , operatorFunction
+  , commaOpFunc
+  , ternaryOpFunc
+  , elvisOpFunc
+  , indexOpFunc
+  , refFunc
+  , derefFunc
+  , ref
+  , deref
   , getTuple
   , getMember
   ) where
@@ -21,6 +30,57 @@ data TransformMonad = TransformMonad
   }
 
 type TState = State TransformMonad
+
+tPointer = TCon (Tycon "@Pointer" (Kfun Star Star))
+
+-- pointer reference & dereference functions
+-- TODO: say something clever here
+ref :: Expr -> Expr
+deref :: Expr -> Expr
+pointer :: Type -> Type
+
+ref = Ap (Var refFunc)
+deref = Ap (Var derefFunc)
+pointer = TAp tPointer
+
+class OperatorFunction a where
+  operatorFunction :: a -> Id
+
+commaOpFunc   :: Id  -- takes two things and returns the second
+ternaryOpFunc :: Id
+elvisOpFunc   :: Id
+indexOpFunc   :: Id
+refFunc :: Id
+derefFunc :: Id
+
+-- TODO: maybe rename these
+commaOpFunc   = ",2"
+ternaryOpFunc = "?:3"
+elvisOpFunc   = "?:2"
+indexOpFunc   = "[]2"
+refFunc       = "&1"
+derefFunc     = "*1"
+
+initTransformMonad :: TransformMonad
+initTransformMonad = TransformMonad
+  { tuples = Set.empty
+  , createdClasses = Set.empty
+  , memberClasses = return
+  , builtIns =
+    let
+      aVar = Tyvar "a" Star
+      bVar = Tyvar "b" Star
+      aTVar = TVar aVar
+      bTVar = TVar bVar
+    in
+      [ commaOpFunc :>: quantify [aVar, bVar] ([] :=> (aTVar `fn` bTVar `fn` bTVar))
+      , ternaryOpFunc :>: quantify [aVar, bVar] ([] :=> (aTVar `fn` bTVar `fn` bTVar `fn` bTVar)) -- TODO: aTVar has to be 0 comparable
+      , elvisOpFunc :>: quantify [aVar, bVar] ([] :=> (aTVar `fn` bTVar `fn` bTVar)) -- TODO: aTVar has to be 0 comparable
+      , indexOpFunc :>: quantify [aVar, bVar] ([] :=> (pointer aTVar `fn` bTVar `fn` aTVar)) -- TODO: bTVar has to be integral
+      , refFunc :>: quantify [aVar] ([] :=> (aTVar `fn` pointer aTVar))
+      , derefFunc :>: quantify [aVar] ([] :=> (pointer aTVar `fn` aTVar))
+      ]
+  }
 
 getTuple :: Int -> TState Id
 getTuple n = do
