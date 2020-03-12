@@ -200,3 +200,70 @@ instance Transform CHMFunDef where
     tFunDef <- transform funDef
     -- here we should rename the variables, the best for that would be a nest variable in the monad
     return $ tHead ++ tFunDef
+
+instance Transform CStat where
+  transform cStat = case cStat of
+    CLabel _ stmt _ _ -> transform stmt
+    CCase cExpr stmt _ -> do
+      name <- getSwitchName
+      transExpr <- transformExpr cExpr
+      transStmt <- transform stmt
+      return $ ([],[[(name, [([],transExpr)])]]) : transStmt
+    CCases lExpr rExpr stmt _ -> do  -- TODO: add checking for range-ness
+      name <- getSwitchName
+      lTrans <- transformExpr lExpr
+      rTrans <- transformExpr rExpr
+      transStmt <- transform stmt
+      return $ ([],[[(name, [([],lTrans),([],rTrans)])]]) : transStmt
+    CDefault stmt _ -> transform stmt
+    CExpr (Just expr) _ -> transform expr
+    CExpr Nothing _ -> return []
+    CCompound _ [] _ -> return []
+    CCompound _ block _ ->
+      let
+        transforms (first:rest) = do
+          firstTrans <- transform first
+          restTrans <- transforms rest
+          return $ firstTrans ++ restTrans
+        transforms [] = return []
+      in do
+        enterScope []
+        transBlock <- transforms block
+        leaveScope
+        return transBlock
+    CIf expr tStmt (Just fStmt) _ -> do
+      transExpr <- transformExpr expr
+      tTrans <- transform tStmt
+      fTrans <- transform fStmt
+      return $ ([],[[("TODO", [([],transExpr)])]]) : (tTrans ++ fTrans)  -- TODO
+    CIf expr tStmt (Nothing) _ -> do
+      transExpr <- transformExpr expr
+      tTrans <- transform tStmt
+      return $ ([],[[("TODO", [([],transExpr)])]]) : tTrans  -- TODO
+    CSwitch expr stmt _ -> do
+      enterSwitch
+      name <- getSwitchName
+      transExpr <- transformExpr expr
+      transStmt <- transform stmt
+      leaveSwitch
+      return $ ([],[[(name, [([],transExpr)])]]) : transStmt
+    CWhile expr stmt _ _ -> do
+      transExpr <- transformExpr expr
+      transStmt <- transform stmt
+      return $ ([],[[("TODO", [([],transExpr)])]]) : transStmt  -- TODO
+    CFor _ _ _ a _ -> return []  -- TODO
+    CGoto _ _ -> return []
+    CGotoPtr _ _ -> return []  -- TODO
+    CCont _ ->  return []
+    CBreak _ -> return []
+    CReturn (Just a) _ -> return []  -- TODO: has to connect to the parent function
+    CReturn (Nothing) _ -> return []  -- TODO: has to connect to the parent function
+    CAsm _ _ -> return []
+
+instance Transform CBlockItem where
+  transform (CBlockStmt stmt) = transform stmt
+  transform (CBlockDecl _) = return []  -- TODO: new variable (should be renamed + shadowing)
+  transform (CNestedFunDef _) = return []  -- TODO: gnu thing, so maybe not-todo
+
+instance Transform CHMHead where
+  transform (CHMHead types constraints _) = return []  -- TODO
