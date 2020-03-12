@@ -25,9 +25,9 @@ instance Transform CExtDecl where
   transform  (CDeclExt a)   = transform a
   transform  (CFDefExt a)   = transform a
   transform  (CHMFDefExt a) = transform a
-  transform  (CHMSDefExt a) = transform a
-  transform  (CHMCDefExt a) = transform a
-  transform  (CHMIDefExt a) = transform a
+  -- TODO: transform  (CHMSDefExt a) = transform a
+  -- TODO: transform  (CHMCDefExt a) = transform a
+  -- TODO: transform  (CHMIDefExt a) = transform a
   transform  (CAsmExt  a _) = transform a
 
 class FindReturn a where
