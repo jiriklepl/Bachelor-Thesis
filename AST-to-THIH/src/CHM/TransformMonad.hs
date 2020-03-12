@@ -1,6 +1,43 @@
 module CHM.TransformMonad
   ( TransformMonad(..)
   , TState
+  , mulOpFunc
+  , divOpFunc
+  , modOpFunc
+  , addOpFunc
+  , subOpFunc
+  , shlOpFunc
+  , shrOpFunc
+  , xorOpFunc
+  , orOpFunc
+  , andOpFunc
+  , logAndOpFunc
+  , logOrOpFunc
+  , eqOpFunc
+  , neqOpFunc
+  , ltOpFunc
+  , gtOpFunc
+  , leOpFunc
+  , geOpFunc
+  , assOpFunc
+  , mulAssOpFunc
+  , divAssOpFunc
+  , modAssOpFunc
+  , addAssOpFunc
+  , subAssOpFunc
+  , shlAssOpFunc
+  , shrAssOpFunc
+  , andAssOpFunc
+  , xorAssOpFunc
+  , orAssOpFunc
+  , preIncOpFunc
+  , postIncOpFunc
+  , preDecOpFunc
+  , postDecOpFunc
+  , plusOpFunc
+  , minusOpFunc
+  , complOpFunc
+  , negOpFunc
   , operatorFunction
   , commaOpFunc
   , ternaryOpFunc
@@ -31,20 +68,117 @@ data TransformMonad = TransformMonad
 
 type TState = State TransformMonad
 
+tPointer :: Type
+tTuple3  :: Type
+tBool  :: Type
+
 tPointer = TCon (Tycon "@Pointer" (Kfun Star Star))
+tTuple3 = TCon (Tycon "(,,)" (Kfun Star (Kfun Star (Kfun Star Star))))
+tBool = TCon (Tycon "Bool" Star)
 
 -- pointer reference & dereference functions
 -- TODO: say something clever here
 ref :: Expr -> Expr
 deref :: Expr -> Expr
 pointer :: Type -> Type
+trio :: Type -> Type -> Type -> Type
 
 ref = Ap (Var refFunc)
 deref = Ap (Var derefFunc)
 pointer = TAp tPointer
+trio a b c = TAp (TAp (TAp tTuple3 a) b) c
 
 class OperatorFunction a where
   operatorFunction :: a -> Id
+
+instance OperatorFunction CAssignOp where
+  operatorFunction op = case op of
+    CAssignOp -> assOpFunc
+    CMulAssOp -> mulAssOpFunc
+    CDivAssOp -> divAssOpFunc
+    CRmdAssOp -> modAssOpFunc
+    CAddAssOp -> addAssOpFunc
+    CSubAssOp -> subAssOpFunc
+    CShlAssOp -> shlAssOpFunc
+    CShrAssOp -> shrAssOpFunc
+    CAndAssOp -> andAssOpFunc
+    CXorAssOp -> xorAssOpFunc
+    COrAssOp -> orAssOpFunc
+
+instance OperatorFunction CBinaryOp where
+  operatorFunction op = case op of
+    CMulOp -> mulOpFunc
+    CDivOp -> divOpFunc
+    CRmdOp -> modOpFunc
+    CAddOp -> addOpFunc
+    CSubOp -> subOpFunc
+    CShlOp -> shlOpFunc
+    CShrOp -> shrOpFunc
+    CLeOp -> ltOpFunc
+    CGrOp -> gtOpFunc
+    CLeqOp -> leOpFunc
+    CGeqOp -> geOpFunc
+    CEqOp -> eqOpFunc
+    CNeqOp -> neqOpFunc
+    CAndOp -> andOpFunc
+    CXorOp -> xorOpFunc
+    COrOp -> orOpFunc
+    CLndOp -> logAndOpFunc
+    CLorOp -> logOrOpFunc
+
+instance OperatorFunction CUnaryOp where
+  operatorFunction op = case op of
+    CPreIncOp -> preIncOpFunc
+    CPreDecOp -> preDecOpFunc
+    CPostIncOp -> postIncOpFunc
+    CPostDecOp -> postDecOpFunc
+    CAdrOp -> refFunc
+    CIndOp -> derefFunc
+    CPlusOp -> plusOpFunc
+    CMinOp -> minusOpFunc
+    CCompOp -> complOpFunc
+    CNegOp -> negOpFunc
+
+mulOpFunc     :: Id
+divOpFunc     :: Id
+modOpFunc     :: Id
+addOpFunc     :: Id
+subOpFunc     :: Id
+shlOpFunc     :: Id
+shrOpFunc     :: Id
+xorOpFunc     :: Id
+orOpFunc     :: Id
+andOpFunc     :: Id
+logAndOpFunc     :: Id
+logOrOpFunc     :: Id
+
+eqOpFunc      :: Id
+neqOpFunc      :: Id
+ltOpFunc      :: Id
+gtOpFunc      :: Id
+leOpFunc      :: Id
+geOpFunc      :: Id
+
+assOpFunc      :: Id
+mulAssOpFunc      :: Id
+divAssOpFunc      :: Id
+modAssOpFunc      :: Id
+addAssOpFunc      :: Id
+subAssOpFunc      :: Id
+shlAssOpFunc      :: Id
+shrAssOpFunc      :: Id
+andAssOpFunc      :: Id
+xorAssOpFunc      :: Id
+orAssOpFunc      :: Id
+
+preIncOpFunc :: Id
+postIncOpFunc :: Id
+preDecOpFunc :: Id
+postDecOpFunc :: Id
+plusOpFunc :: Id
+minusOpFunc :: Id
+complOpFunc :: Id
+negOpFunc :: Id
 
 commaOpFunc   :: Id  -- takes two things and returns the second
 ternaryOpFunc :: Id
@@ -54,6 +188,47 @@ refFunc :: Id
 derefFunc :: Id
 
 -- TODO: maybe rename these
+mulOpFunc     = "*2"
+divOpFunc     = "/2"
+modOpFunc     = "%2"
+addOpFunc     = "+2"
+subOpFunc     = "-2"
+shlOpFunc     = "<<2"  -- TODO
+shrOpFunc     = ">>2"  -- TODO
+xorOpFunc     = "^2"  -- TODO
+orOpFunc     = "|2"  -- TODO
+andOpFunc     = "&2"  -- TODO
+logAndOpFunc     = "&&2"  -- TODO
+logOrOpFunc     = "||2"  -- TODO
+
+eqOpFunc      = "==2"
+neqOpFunc      = "!=2"
+ltOpFunc      = "<2"
+gtOpFunc      = ">2"
+leOpFunc      = "<=2"
+geOpFunc      = ">=2"
+
+assOpFunc      = "=2"  -- TODO
+mulAssOpFunc      = "*=2"  -- TODO
+divAssOpFunc      = "/=2"  -- TODO
+modAssOpFunc      = "%=2"  -- TODO
+addAssOpFunc      = "+=2"  -- TODO
+subAssOpFunc      = "-=2"  -- TODO
+shlAssOpFunc      = "<<=2"  -- TODO
+shrAssOpFunc      = ">>=2"  -- TODO
+andAssOpFunc      = "&=2"  -- TODO
+xorAssOpFunc      = "^=2"  -- TODO
+orAssOpFunc      = "|=2"  -- TODO
+
+preIncOpFunc = "++1"  -- TODO
+postIncOpFunc = "1++"  -- TODO
+preDecOpFunc = "--1"  -- TODO
+postDecOpFunc = "1--"  -- TODO
+plusOpFunc = "+1"  -- TODO
+minusOpFunc = "-1"  -- TODO
+complOpFunc = "~1"  -- TODO
+negOpFunc = "!1"  -- TODO
+
 commaOpFunc   = ",2"
 ternaryOpFunc = "?:3"
 elvisOpFunc   = "?:2"
@@ -65,20 +240,73 @@ initTransformMonad :: TransformMonad
 initTransformMonad = TransformMonad
   { tuples = Set.empty
   , createdClasses = Set.empty
-  , memberClasses = return
+  , memberClasses =
+    let
+      aVar = Tyvar "a" Star
+      bVar = Tyvar "b" Star
+      aTVar = TVar aVar
+      bTVar = TVar bVar
+    in addClass "Add" []
+    <:> addClass "Sub" []
+    <:> addClass "Mul" []
+    <:> addClass "Div" []
+    <:> addClass "Mod" []  -- TODO
+    <:> addClass "Eq" []
+    <:> addClass "LG" []
+    <:> addClass "BinOp" []
+    <:> addClass "LogOp" []
+    <:> addInst [] (IsIn "Add" (pair tInt tInt))
+    <:> addInst [] (IsIn "Add" (pair tFloat tFloat))
+    <:> addInst [] (IsIn "Add" (pair tDouble tDouble))
+    <:> addInst [] (IsIn "Add" (pair (pointer aTVar) (pointer bTVar)))
+    <:> addInst [] (IsIn "Sub" (pair tInt tInt))
+    <:> addInst [] (IsIn "Sub" (pair tFloat tFloat))
+    <:> addInst [] (IsIn "Sub" (pair tDouble tDouble))
+    <:> addInst [] (IsIn "Sub" (pair (pointer aTVar) (pointer bTVar)))
+    <:> addInst [] (IsIn "Mul" (pair tInt tInt))
+    <:> addInst [] (IsIn "Mul" (pair tFloat tFloat))
+    <:> addInst [] (IsIn "Mul" (pair tDouble tDouble))
+    <:> addInst [] (IsIn "Div" (pair tInt tInt))
+    <:> addInst [] (IsIn "Div" (pair tFloat tFloat))
+    <:> addInst [] (IsIn "Div" (pair tDouble tDouble))
+    <:> addInst [] (IsIn "Mod" (pair tInt tInt))
+    <:> addInst [] (IsIn "Eq"  (pair tInt tInt))
+    <:> addInst [] (IsIn "Eq"  (pair tFloat tFloat))
+    <:> addInst [] (IsIn "Eq"  (pair tDouble tDouble))
+    <:> addInst [] (IsIn "Eq"  (pair (pointer aTVar) (pointer bTVar)))
+    <:> addInst [] (IsIn "LG"  (pair tInt tInt))
+    <:> addInst [] (IsIn "LG"  (pair tFloat tFloat))
+    <:> addInst [] (IsIn "LG"  (pair tDouble tDouble))
+    <:> addInst [] (IsIn "LG"  (pair (pointer aTVar) (pointer bTVar)))
+    <:> addInst [] (IsIn "BinOp"  (pair tInt tInt))
+    <:> addInst [] (IsIn "BinOp"  (pair (pointer aTVar) (pointer bTVar)))
   , builtIns =
     let
       aVar = Tyvar "a" Star
       bVar = Tyvar "b" Star
       aTVar = TVar aVar
       bTVar = TVar bVar
+      abaFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (aTVar `fn` bTVar `fn` aTVar))
+      abBFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (aTVar `fn` bTVar `fn` tBool))
     in
-      [ commaOpFunc :>: quantify [aVar, bVar] ([] :=> (aTVar `fn` bTVar `fn` bTVar))
+      [ addOpFunc :>: abaFuncWithClasses [IsIn "Add" (pair aTVar bTVar)]
+      , subOpFunc :>: abaFuncWithClasses [IsIn "Sub" (pair aTVar bTVar)]
+      , mulOpFunc :>: abaFuncWithClasses [IsIn "Mul" (pair aTVar bTVar)]
+      , divOpFunc :>: abaFuncWithClasses [IsIn "Div" (pair aTVar bTVar)]
+      , modOpFunc :>: abaFuncWithClasses [IsIn "Mod" (pair aTVar bTVar)]
+      , eqOpFunc :>: abBFuncWithClasses [IsIn "Eq" (pair aTVar bTVar)]
+      , neqOpFunc :>: abBFuncWithClasses [IsIn "Eq" (pair aTVar bTVar)]
+      , ltOpFunc :>: abBFuncWithClasses [IsIn "LG" (pair aTVar bTVar)]
+      , gtOpFunc :>: abBFuncWithClasses [IsIn "LG" (pair aTVar bTVar)]
+      , leOpFunc :>: abBFuncWithClasses [IsIn "LG" (pair aTVar bTVar), IsIn "Eq" (pair aTVar bTVar)]
+      , geOpFunc :>: abBFuncWithClasses [IsIn "LG" (pair aTVar bTVar), IsIn "Eq" (pair aTVar bTVar)]
+      , commaOpFunc :>: quantify [aVar, bVar] ([] :=> (aTVar `fn` bTVar `fn` bTVar))
       , ternaryOpFunc :>: quantify [aVar, bVar] ([] :=> (aTVar `fn` bTVar `fn` bTVar `fn` bTVar)) -- TODO: aTVar has to be 0 comparable
       , elvisOpFunc :>: quantify [aVar, bVar] ([] :=> (aTVar `fn` bTVar `fn` bTVar)) -- TODO: aTVar has to be 0 comparable
       , indexOpFunc :>: quantify [aVar, bVar] ([] :=> (pointer aTVar `fn` bTVar `fn` aTVar)) -- TODO: bTVar has to be integral
       , refFunc :>: quantify [aVar] ([] :=> (aTVar `fn` pointer aTVar))
       , derefFunc :>: quantify [aVar] ([] :=> (pointer aTVar `fn` aTVar))
+      , derefFunc :>: quantify [aVar, bVar] ([] :=> (pointer aTVar `fn` aTVar))
       ]
   }
 
