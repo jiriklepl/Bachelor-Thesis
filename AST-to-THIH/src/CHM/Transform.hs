@@ -60,10 +60,10 @@ instance FindReturn CStat where
     CBreak _ -> return []
     CAsm _ _ -> return []
 
--- instance FindReturn CBlockItem where
---   findReturn CBlockStmt  -- TODO:
---   findReturn CBlockDecl  -- TODO:
---   findReturn CNestedFunDef  -- TODO:
+instance FindReturn CBlockItem where
+  findReturn (CBlockStmt stmt) = findReturn stmt
+  findReturn (CBlockDecl _) = return []
+  findReturn (CNestedFunDef _) = return []
 
 transformExpr :: CExpr -> TState Expr
 transformExpr cExpr = let
