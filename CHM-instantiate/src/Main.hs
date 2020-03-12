@@ -3,8 +3,9 @@ module Main where
 
 import Language.C
 import Language.C.System.GCC
+import CHM.Transform
 
-main = parseMyFile "test.chm" >>= printMyAST
+main = parseMyFile "test.chm" >>= typeMyAST
 
 parseMyFile :: FilePath -> IO CTranslUnit
 parseMyFile input_file =
@@ -15,3 +16,6 @@ parseMyFile input_file =
 
 printMyAST :: CTranslUnit -> IO ()
 printMyAST = print . pretty
+
+typeMyAST :: CTranslUnit -> IO ()
+typeMyAST = print . typeInfer
