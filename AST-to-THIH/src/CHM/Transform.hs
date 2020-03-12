@@ -183,8 +183,11 @@ instance Transform CExpr where
     return [([],[[("TODO", [([],expr)])]])]  -- TODO
 
 instance Transform CFunDef where
-  transform (CFunDef specs decl decls stmt _) =
-    transform stmt  -- TODO
+  transform (CFunDef specs (CDeclr (Just (Ident sId _ _)) _ _ _ _) decls stmt _) = do
+    enterScope sId
+    transStmt <- transform stmt  -- TODO
+    leaveScope
+    return transStmt
 
 instance Transform CDecl where  -- TODO
   transform (CDecl cDeclSpecs cDecls _) = return []
@@ -194,11 +197,12 @@ instance Transform CStrLit where
   transform (CStrLit (CString s _) _) =
     return [([],[[("TODO", [([],Lit $ LitStr s)])]])]  -- TODO
 
-instance Transform CHMFunDef where
-  transform (CHMFunDef head funDef _) = do
+instance Transform CHMFunDef where  -- TODO
+  transform (CHMFunDef head (CFunDef specs (CDeclr (Just (Ident sId _ _)) _ _ _ _) decls stmt _) _) = do  -- TODO
+    enterScope sId
     tHead <- transform head
-    tFunDef <- transform funDef
-    -- here we should rename the variables, the best for that would be a nest variable in the monad
+    tFunDef <- transform stmt
+    leaveScope
     return $ tHead ++ tFunDef
 
 instance Transform CStat where
