@@ -9,7 +9,10 @@ import Language.C.Data.Ident (Ident(..))
 import CHM.TransformMonad
 
 class Transform a where
-  transform :: a -> TState [BindGroup]
+  transform :: a -> TState Program
+
+typeInfer :: Transform a => a -> Program
+typeInfer ast = runTState . transform $ ast
 
 instance Transform CTranslUnit where
   transform (CTranslUnit [] _) = return []
