@@ -47,8 +47,16 @@ module CHM.TransformMonad
   , derefFunc
   , ref
   , deref
+  , findName
+  , renameScoped
+  , getSwitchName
+  , enterScope
+  , leaveScope
+  , enterSwitch
+  , leaveSwitch
   , getTuple
   , getMember
+  , runTState
   ) where
 
 import Control.Monad.State
@@ -59,8 +67,13 @@ import Language.C.Data
 import Language.C.Syntax
 import Language.C.Data.Ident (Ident(..))
 
+type Scope = (Id, Int, Set.Set Id)
+
 data TransformMonad = TransformMonad
   { tuples :: Set.Set Int  -- memory of created tuple makers
+  , nested :: [Scope]  -- to avoid name collisions
+  , switchScopes :: [Int]
+  , lastScope :: Int
   , createdClasses :: Set.Set Ident  -- memory of created member accessors
   , memberClasses :: EnvTransformer
   , builtIns :: [Assump]  -- all created symbols
@@ -72,6 +85,7 @@ tPointer :: Type
 tTuple3  :: Type
 tBool  :: Type
 
+
 tPointer = TCon (Tycon "@Pointer" (Kfun Star Star))
 tTuple3 = TCon (Tycon "(,,)" (Kfun Star (Kfun Star (Kfun Star Star))))
 tBool = TCon (Tycon "Bool" Star)
@@ -82,11 +96,13 @@ ref :: Expr -> Expr
 deref :: Expr -> Expr
 pointer :: Type -> Type
 trio :: Type -> Type -> Type -> Type
+fst3 :: (a, b, c) -> a
 
 ref = Ap (Var refFunc)
 deref = Ap (Var derefFunc)
 pointer = TAp tPointer
 trio a b c = TAp (TAp (TAp tTuple3 a) b) c
+fst3 (a, b, c) = a
 
 class OperatorFunction a where
   operatorFunction :: a -> Id
@@ -240,6 +256,9 @@ initTransformMonad :: TransformMonad
 initTransformMonad = TransformMonad
   { tuples = Set.empty
   , createdClasses = Set.empty
+  , nested = [("global",0,Set.empty)]
+  , lastScope = 0
+  , switchScopes = []
   , memberClasses =
     let
       aVar = Tyvar "a" Star
@@ -310,6 +329,68 @@ initTransformMonad = TransformMonad
       ]
   }
 
+renameScoped :: Id -> Scope -> Id
+renameScoped id (name, count, _) = name ++ show count ++ ':' : id
+
+getSwitchName :: TState Id
+getSwitchName = do
+  TransformMonad{switchScopes=sScopes} <- get
+  return $ "@Switch" ++ (show . head) sScopes
+
+findName :: Id -> TState (Maybe Scope)
+findName id = do
+  TransformMonad{nested=ns} <- get
+  let {
+    recursiveSearch i [] = Nothing;
+    recursiveSearch i (scope@(_, _, names):scopes) =
+      if i `Set.member` names
+      then
+        Just scope
+      else
+        recursiveSearch i scopes
+  } in return (recursiveSearch id ns)
+
+enterScope :: Id -> TState ()
+enterScope id = do
+  state@TransformMonad{nested=ns, lastScope = n} <- get
+  put state
+    { nested = (if id == [] then fst3 (head ns) else id, n + 1, Set.empty) : ns
+    , lastScope = n + 1
+    }
+
+leaveScope :: TState ()
+leaveScope = do
+  state@TransformMonad{nested=ns} <- get
+  case ns of
+    -- [top] -> leaving the global scope (-- TODO)
+    _:rest ->
+      put state
+        { nested = rest
+        }
+
+-- implicitly enters new scope
+enterSwitch :: TState ()
+enterSwitch = do
+  state@TransformMonad{nested=ns, lastScope = n, switchScopes = sScopes} <- get
+  put state
+    { nested = (fst3 (head ns), n + 1, Set.empty) : ns
+    , lastScope = n + 1
+    , switchScopes = (n + 1) : sScopes
+    }
+
+-- implicitly leaves current scope (+ should have the same relationship with enterSwitch as enter&leaveScope have)
+leaveSwitch :: TState ()
+leaveSwitch = do
+  state@TransformMonad{nested=ns, switchScopes = sScopes} <- get
+  case (ns, sScopes) of
+    -- ([top], _) -> leaving the global scope (-- TODO)
+    -- (_, []) -> leaving the top-most switch (-- TODO)
+    (_:rest, s:ss) ->
+      put state
+        { nested = rest
+        , switchScopes = ss
+        }
+
 getTuple :: Int -> TState Id
 getTuple n = do
   state@TransformMonad{tuples=ts, builtIns=bIs} <- get
@@ -367,3 +448,6 @@ getMember id@(Ident sId _ _) =
         , createdClasses = id `Set.insert` cs
         }
       return translateId
+
+runTState :: TState a -> a
+runTState a = (evalState a initTransformMonad)
