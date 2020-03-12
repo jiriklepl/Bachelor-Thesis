@@ -139,14 +139,14 @@ transformExpr cExpr = let
       fTrans
       (foldl Ap (Var tuple) eTrans)
   -- sExpr->mId
-  CMember sExpr mId true  _ -> do
+  CMember sExpr mId True _ -> do
     member <- (getMember mId)
     sTrans <- transformExpr sExpr
     return $ Ap
       (Var member)
       (deref sTrans)
   -- sExpr.mId
-  CMember sExpr mId false  _ -> do
+  CMember sExpr mId False _ -> do
     member <- (getMember mId)
     sTrans <- transformExpr sExpr
     return $ Ap
