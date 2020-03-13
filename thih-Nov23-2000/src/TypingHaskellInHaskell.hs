@@ -67,6 +67,16 @@ tInteger = TCon (Tycon "Integer" Star)
 tFloat   = TCon (Tycon "Float" Star)
 tDouble  = TCon (Tycon "Double" Star)
 
+-- CHM additions
+tVoid  = TCon (Tycon "Void" Star)
+tShort = TCon (Tycon "Short" Star)
+tLong = TCon (Tycon "Long" Star)
+tSigned = TCon (Tycon "Signed" Star)
+tUnsig = TCon (Tycon "Unsig" Star)
+tBool = TCon (Tycon "Bool" Star)
+tComplex = TCon (Tycon "Complex" Star)
+tInt128 = TCon (Tycon "Int128" Star)
+
 tList    = TCon (Tycon "[]" (Kfun Star Star))
 tArrow   = TCon (Tycon "(->)" (Kfun Star (Kfun Star Star)))
 tTuple2  = TCon (Tycon "(,)" (Kfun Star (Kfun Star Star)))
