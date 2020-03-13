@@ -4,14 +4,19 @@
 /*
  * Makes a vector of one element
  */
-<a>
-a just_pass(a first) {
+int just_pass(int first) {
+	switch (first) {
+		case 10:
+		case 20:
+		case 30:
+		break;
+	}
 	first = first + first;
 	return first;
 }
 
 
 int main(void) {
-	just_pass(5);
+	just_pass(5, 10, 20);
 	return 0;
 }
