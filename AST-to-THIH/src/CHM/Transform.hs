@@ -14,6 +14,45 @@ class Transform a where
 typeInfer :: Transform a => a -> Program
 typeInfer ast = runTState . transform $ ast
 
+toConst :: Type -> Type
+toConst c@(TAp tConst a) = c
+toConst c = TAp tConst c
+
+scopedName :: Id -> TState Id
+scopedName id = do
+  scope <- findName id
+  case scope of
+    Just s -> return $ renameScoped s id
+    _ -> return $ "@Error:" ++ id
+
+translateDeclSpecs :: [CDeclSpec] -> Type  -- TODO: just temporary implementation
+translateDeclSpecs (decl:decls) = case decl of
+  CTypeSpec (CVoidType _) -> tVoid
+  CTypeSpec (CCharType _) -> tChar
+  CTypeSpec (CShortType _) -> tShort
+  CTypeSpec (CIntType _) -> tInt
+  CTypeSpec (CLongType _) -> tLong
+  CTypeSpec (CFloatType _) -> tFloat
+  CTypeSpec (CDoubleType _) -> tDouble
+  CTypeSpec (CSignedType _) -> tSigned
+  CTypeSpec (CUnsigType _) -> tUnsig
+  CTypeSpec (CBoolType _) -> tBool
+  CTypeSpec (CComplexType _) -> tComplex
+  CTypeSpec (CInt128Type _) -> tInt128
+  -- TODO: from here
+  CTypeQual (CConstQual _) -> toConst $ translateDeclSpecs decls
+  CTypeQual (CVolatQual _) -> translateDeclSpecs decls  -- TODO
+  CTypeQual (CRestrQual _) -> translateDeclSpecs decls  -- TODO
+  CTypeQual (CAtomicQual _) -> translateDeclSpecs decls  -- TODO
+  CTypeQual (CAttrQual _) -> translateDeclSpecs decls  -- TODO
+  CTypeQual (CNullableQual _) -> translateDeclSpecs decls  -- TODO
+  CTypeQual (CNonnullQual _) -> translateDeclSpecs decls  -- TODO
+  CTypeQual (CClRdOnlyQual _) -> translateDeclSpecs decls  -- TODO
+  CTypeQual (CClWrOnlyQual _) -> translateDeclSpecs decls  -- TODO
+  CFunSpec _ -> translateDeclSpecs decls
+  CStorageSpec _ -> translateDeclSpecs decls
+  CAlignSpec _ -> translateDeclSpecs decls
+
 instance Transform CTranslUnit where
   transform (CTranslUnit [] _) = return []
   transform (CTranslUnit (extDecl:extDecls) a) = do
@@ -155,8 +194,9 @@ transformExpr cExpr = let
     return $ Ap
       (Var member)
       sTrans
-  CVar (Ident sId _ _) _ ->
-    return $ Var sId
+  CVar (Ident sId _ _) _ -> do
+    name <- scopedName sId
+    return $ Var name
   -- CConst is literal
   -- TODO: check it
   CConst (CIntConst (CInteger i _ _) _) ->
@@ -185,12 +225,14 @@ instance Transform CExpr where
     expr <- transformExpr cExpr
     return [([],[[("TODO", [([],expr)])]])]  -- TODO
 
-instance Transform CFunDef where
+instance Transform CFunDef where  -- TODO: make this and CHMFunDef use same bits of code
   transform (CFunDef specs (CDeclr (Just (Ident sId _ _)) _ _ _ _) decls stmt _) = do
+    storeName sId
+    name <- scopedName sId
     enterScope sId
     transStmt <- transform stmt  -- TODO
     leaveScope
-    return transStmt
+    return $ ([(name, toScheme $ translateDeclSpecs specs, [])],[]) : transStmt
 
 instance Transform CDecl where  -- TODO
   transform (CDecl cDeclSpecs cDecls _) = return []
@@ -202,11 +244,13 @@ instance Transform CStrLit where
 
 instance Transform CHMFunDef where  -- TODO
   transform (CHMFunDef head (CFunDef specs (CDeclr (Just (Ident sId _ _)) _ _ _ _) decls stmt _) _) = do  -- TODO
+    storeName sId
+    name <- scopedName sId
     enterScope sId
-    tHead <- transform head
-    tFunDef <- transform stmt
+    transHead <- transform head
+    transStmt <- transform stmt
     leaveScope
-    return $ tHead ++ tFunDef
+    return $ ([(name, toScheme $ translateDeclSpecs specs, [])],[]) : transHead ++ transStmt
 
 instance Transform CStat where
   transform cStat = case cStat of
