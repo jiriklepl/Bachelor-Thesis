@@ -1,6 +1,8 @@
 module CHM.TransformMonad
   ( TransformMonad(..)
   , TState
+  , tPointer
+  , tConst
   , mulOpFunc
   , divOpFunc
   , modOpFunc
@@ -48,6 +50,7 @@ module CHM.TransformMonad
   , ref
   , deref
   , findName
+  , storeName
   , renameScoped
   , getSwitchName
   , enterScope
@@ -82,13 +85,13 @@ data TransformMonad = TransformMonad
 type TState = State TransformMonad
 
 tPointer :: Type
+tConst :: Type
 tTuple3  :: Type
-tBool  :: Type
 
 
 tPointer = TCon (Tycon "@Pointer" (Kfun Star Star))
+tConst = TCon (Tycon "@Const" (Kfun Star Star))
 tTuple3 = TCon (Tycon "(,,)" (Kfun Star (Kfun Star (Kfun Star Star))))
-tBool = TCon (Tycon "Bool" Star)
 
 -- pointer reference & dereference functions
 -- TODO: say something clever here
@@ -329,8 +332,8 @@ initTransformMonad = TransformMonad
       ]
   }
 
-renameScoped :: Id -> Scope -> Id
-renameScoped id (name, count, _) = name ++ show count ++ ':' : id
+renameScoped :: Scope -> Id -> Id
+renameScoped (name, count, _) id = name ++ show count ++ ':' : id
 
 getSwitchName :: TState Id
 getSwitchName = do
@@ -349,6 +352,15 @@ findName id = do
       else
         recursiveSearch i scopes
   } in return (recursiveSearch id ns)
+
+storeName :: Id -> TState ()
+storeName id = do
+  state@TransformMonad{nested=ns} <- get
+  case ns of
+    (scopeId, count, names) : rest ->
+      put state
+        { nested = (scopeId, count, id `Set.insert` names) : rest
+        }
 
 enterScope :: Id -> TState ()
 enterScope id = do
