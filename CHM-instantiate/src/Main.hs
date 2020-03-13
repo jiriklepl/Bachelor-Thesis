@@ -5,7 +5,7 @@ import Language.C
 import Language.C.System.GCC
 import CHM.Transform
 
-main = parseMyFile "test.chm" >>= typeMyAST
+main = parseMyFile "test.chm" >>= typeAST
 
 parseMyFile :: FilePath -> IO CTranslUnit
 parseMyFile input_file =
@@ -14,8 +14,11 @@ parseMyFile input_file =
        Left parse_err -> error (show parse_err)
        Right ast      -> return ast
 
-printMyAST :: CTranslUnit -> IO ()
-printMyAST = print . pretty
+printPretty :: CTranslUnit -> IO ()
+printPretty = print . pretty
 
-typeMyAST :: CTranslUnit -> IO ()
-typeMyAST = print . typeInfer
+printAST :: CTranslUnit -> IO ()
+printAST = print
+
+typeAST :: CTranslUnit -> IO ()
+typeAST = print . typeInfer
