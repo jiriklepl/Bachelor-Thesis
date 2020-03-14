@@ -1,15 +1,19 @@
 // CHM test source code
-char (* (* const b)(int, int*))(){
+
+char * (* b(int first, int* second))(){
 }
 
-int just_pass(int first) {
+<a>
+a just_pass(a* first) {
+	int second;
+	second = first;
 	switch (first) {
 		case 10:
 		case 20:
 		case 30:
 		break;
 	}
-	first = first + first;
+	first = first + second;
 	return first;
 }
 
