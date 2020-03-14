@@ -3,6 +3,7 @@ module CHM.TransformMonad
   , TState
   , tPointer
   , tConst
+  , tError
   , mulOpFunc
   , divOpFunc
   , modOpFunc
@@ -49,6 +50,7 @@ module CHM.TransformMonad
   , derefFunc
   , ref
   , deref
+  , pointer
   , findName
   , storeName
   , renameScoped
@@ -57,6 +59,7 @@ module CHM.TransformMonad
   , leaveScope
   , enterSwitch
   , leaveSwitch
+  , getTupleOp
   , getTuple
   , getMember
   , runTState
@@ -86,11 +89,13 @@ type TState = State TransformMonad
 
 tPointer :: Type
 tConst :: Type
+tError :: Type
 tTuple3  :: Type
 
 
 tPointer = TCon (Tycon "@Pointer" (Kfun Star Star))
 tConst = TCon (Tycon "@Const" (Kfun Star Star))
+tError = TCon (Tycon "@Error" Star)
 tTuple3 = TCon (Tycon "(,,)" (Kfun Star (Kfun Star (Kfun Star Star))))
 
 -- pointer reference & dereference functions
@@ -206,7 +211,6 @@ indexOpFunc   :: Id
 refFunc :: Id
 derefFunc :: Id
 
--- TODO: maybe rename these
 mulOpFunc     = "*2"
 divOpFunc     = "/2"
 modOpFunc     = "%2"
@@ -227,12 +231,12 @@ gtOpFunc      = ">2"
 leOpFunc      = "<=2"
 geOpFunc      = ">=2"
 
-assOpFunc      = "=2"  -- TODO
-mulAssOpFunc      = "*=2"  -- TODO
-divAssOpFunc      = "/=2"  -- TODO
-modAssOpFunc      = "%=2"  -- TODO
-addAssOpFunc      = "+=2"  -- TODO
-subAssOpFunc      = "-=2"  -- TODO
+assOpFunc      = "=2"
+mulAssOpFunc      = "*=2"
+divAssOpFunc      = "/=2"
+modAssOpFunc      = "%=2"
+addAssOpFunc      = "+=2"
+subAssOpFunc      = "-=2"
 shlAssOpFunc      = "<<=2"  -- TODO
 shrAssOpFunc      = ">>=2"  -- TODO
 andAssOpFunc      = "&=2"  -- TODO
@@ -274,6 +278,7 @@ initTransformMonad = TransformMonad
     <:> addClass "Div" []
     <:> addClass "Mod" []  -- TODO
     <:> addClass "Eq" []
+    <:> addClass "Eq0" []  -- TODO, for types that can compare to zero (like pointers and integral types)
     <:> addClass "LG" []
     <:> addClass "BinOp" []
     <:> addClass "LogOp" []
@@ -308,6 +313,7 @@ initTransformMonad = TransformMonad
       bVar = Tyvar "b" Star
       aTVar = TVar aVar
       bTVar = TVar bVar
+      aaaFuncWithClasses cs = quantify [aVar] (cs :=> (aTVar `fn` aTVar `fn` aTVar))
       abaFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (aTVar `fn` bTVar `fn` aTVar))
       abBFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (aTVar `fn` bTVar `fn` tBool))
     in
@@ -316,6 +322,12 @@ initTransformMonad = TransformMonad
       , mulOpFunc :>: abaFuncWithClasses [IsIn "Mul" (pair aTVar bTVar)]
       , divOpFunc :>: abaFuncWithClasses [IsIn "Div" (pair aTVar bTVar)]
       , modOpFunc :>: abaFuncWithClasses [IsIn "Mod" (pair aTVar bTVar)]
+      , assOpFunc :>: abBFuncWithClasses []
+      , addAssOpFunc :>: abaFuncWithClasses [IsIn "Add" (pair aTVar bTVar)]
+      , subAssOpFunc :>: abaFuncWithClasses [IsIn "Sub" (pair aTVar bTVar)]
+      , mulAssOpFunc :>: abaFuncWithClasses [IsIn "Mul" (pair aTVar bTVar)]
+      , divAssOpFunc :>: abaFuncWithClasses [IsIn "Div" (pair aTVar bTVar)]
+      , modAssOpFunc :>: abaFuncWithClasses [IsIn "Mod" (pair aTVar bTVar)]
       , eqOpFunc :>: abBFuncWithClasses [IsIn "Eq" (pair aTVar bTVar)]
       , neqOpFunc :>: abBFuncWithClasses [IsIn "Eq" (pair aTVar bTVar)]
       , ltOpFunc :>: abBFuncWithClasses [IsIn "LG" (pair aTVar bTVar)]
@@ -327,7 +339,6 @@ initTransformMonad = TransformMonad
       , elvisOpFunc :>: quantify [aVar, bVar] ([] :=> (aTVar `fn` bTVar `fn` bTVar)) -- TODO: aTVar has to be 0 comparable
       , indexOpFunc :>: quantify [aVar, bVar] ([] :=> (pointer aTVar `fn` bTVar `fn` aTVar)) -- TODO: bTVar has to be integral
       , refFunc :>: quantify [aVar] ([] :=> (aTVar `fn` pointer aTVar))
-      , derefFunc :>: quantify [aVar] ([] :=> (pointer aTVar `fn` aTVar))
       , derefFunc :>: quantify [aVar, bVar] ([] :=> (pointer aTVar `fn` aTVar))
       ]
   }
@@ -403,6 +414,14 @@ leaveSwitch = do
         , switchScopes = ss
         }
 
+getTupleOp :: Int -> Type
+getTupleOp n =
+  TCon
+    ( Tycon
+      ("(" ++ replicate (n - 1) ',' ++ ")")
+      (last $ take 5 $ iterate (Kfun Star) Star)
+    )
+
 getTuple :: Int -> TState Id
 getTuple n = do
   state@TransformMonad{tuples=ts, builtIns=bIs} <- get
@@ -418,14 +437,7 @@ getTuple n = do
           in quantify
             as
             ( [] :=>
-              let
-                tupleOperator =
-                  TCon
-                    ( Tycon
-                      ("(" ++ replicate (n - 1) ',' ++ ")")
-                      (last $ take 5 $ iterate (Kfun Star) Star)
-                    )
-              in foldr fn (foldl (\a b -> TAp a b) tupleOperator (TVar <$> as)) (TVar <$> as)
+              foldr fn (foldl TAp (getTupleOp n) (TVar <$> as)) (TVar <$> as)
             )
         ) : bIs
       }
