@@ -1,9 +1,7 @@
 // CHM test source code
+char (* (* const b)(int, int*))(){
+}
 
-
-/*
- * Makes a vector of one element
- */
 int just_pass(int first) {
 	switch (first) {
 		case 10:
