@@ -53,6 +53,47 @@ translateDeclSpecs (decl:decls) = case decl of
   CStorageSpec _ -> translateDeclSpecs decls
   CAlignSpec _ -> translateDeclSpecs decls
 
+translateDerivedDecl :: Type -> [CDerivedDeclr] -> TState Type
+translateDerivedDecl t [] = return t
+translateDerivedDecl t (dDecl:dDecls) =
+  let
+    translateQuals s (typeQual:tDecls) = case typeQual of
+      (CConstQual _) -> toConst $ translateQuals s tDecls
+      (CVolatQual _) -> translateQuals s tDecls  -- TODO
+      (CRestrQual _) -> translateQuals s tDecls  -- TODO
+      (CAtomicQual _) -> translateQuals s tDecls  -- TODO
+      (CAttrQual _) -> translateQuals s tDecls  -- TODO
+      (CNullableQual _) -> translateQuals s tDecls  -- TODO
+      (CNonnullQual _) -> translateQuals s tDecls  -- TODO
+      (CClRdOnlyQual _) -> translateQuals s tDecls  -- TODO
+      (CClWrOnlyQual _) -> translateQuals s tDecls  -- TODO
+    translateQuals s [] = s
+    extractDecls (CDecl declSpecs [] _) = (declSpecs, [])
+    extractDecls (CDecl declSpecs [(Nothing, _, _)] _) = (declSpecs, [])
+    extractDecls (CDecl declSpecs [(Just (CDeclr _ derived _ _ _), _, _)] _) =
+      (declSpecs, derived)
+  in do
+    t' <- translateDerivedDecl t dDecls
+    case dDecl of
+      CPtrDeclr typeQuals _ -> return $ translateQuals (pointer t') typeQuals
+      CArrDeclr typeQuals _ _ -> return $ translateQuals (pointer t') typeQuals  -- TODO: this is just temporary
+      -- old-style functions
+      CFunDeclr (Left _) _ _ -> return tError  -- TODO
+      -- new-style functions (non-variadic)
+      CFunDeclr (Right (rawDecls, False)) _ _ ->
+        let
+          decls = (extractDecls <$> rawDecls)
+          translatesDerivedDecl (decl:otherDecls) = do
+            transFirst <- translateDerivedDecl (translateDeclSpecs $ fst decl) (snd decl)
+            transRest <- translatesDerivedDecl otherDecls
+            return $ transFirst : transRest
+          translatesDerivedDecl [] = return []
+        in do
+          types <- translatesDerivedDecl decls
+          return $ (foldl TAp (getTupleOp $ length types) types) `fn` t'
+      -- new-style functions (variadic)
+      CFunDeclr (Right (decls, True)) _ _ -> return tError  -- TODO
+
 instance Transform CTranslUnit where
   transform (CTranslUnit [] _) = return []
   transform (CTranslUnit (extDecl:extDecls) a) = do
@@ -226,13 +267,14 @@ instance Transform CExpr where
     return [([],[[("TODO", [([],expr)])]])]  -- TODO
 
 instance Transform CFunDef where  -- TODO: make this and CHMFunDef use same bits of code
-  transform (CFunDef specs (CDeclr (Just (Ident sId _ _)) _ _ _ _) decls stmt _) = do
+  transform (CFunDef specs (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _) decls stmt _) = do
     storeName sId
     name <- scopedName sId
+    fType <- translateDerivedDecl (translateDeclSpecs specs) derivedDecls
     enterScope sId
     transStmt <- transform stmt  -- TODO
     leaveScope
-    return $ ([(name, toScheme $ translateDeclSpecs specs, [])],[]) : transStmt
+    return $ ([(name, toScheme $ fType, [])],[]) : transStmt
 
 instance Transform CDecl where  -- TODO
   transform (CDecl cDeclSpecs cDecls _) = return []
