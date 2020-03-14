@@ -377,7 +377,7 @@ enterScope :: Id -> TState ()
 enterScope id = do
   state@TransformMonad{nested=ns, lastScope = n} <- get
   put state
-    { nested = (if id == [] then fst3 (head ns) else id, n + 1, Set.empty) : ns
+    { nested = (if null id then fst3 (head ns) else id, n + 1, Set.empty) : ns
     , lastScope = n + 1
     }
 
@@ -474,4 +474,4 @@ getMember id@(Ident sId _ _) =
       return translateId
 
 runTState :: TState a -> a
-runTState a = (evalState a initTransformMonad)
+runTState a = evalState a initTransformMonad
