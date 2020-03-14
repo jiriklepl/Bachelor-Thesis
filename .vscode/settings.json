@@ -120,6 +120,7 @@
         "tname",
         "tokentype",
         "toplevel",
+        "transs",
         "tyident",
         "typechecker",
         "typedefs",
