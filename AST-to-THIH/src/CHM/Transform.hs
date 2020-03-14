@@ -12,7 +12,7 @@ class Transform a where
   transform :: a -> TState Program
 
 typeInfer :: Transform a => a -> Program
-typeInfer ast = runTState . transform $ ast
+typeInfer = runTState . transform
 
 toConst :: Type -> Type
 toConst c@(TAp tConst a) = c
@@ -25,13 +25,13 @@ scopedName id = do
     Just s -> return $ renameScoped s id
     _ -> return $ "@Error:" ++ id
 
-translateDeclSpecs :: [CDeclSpec] -> Type  -- TODO: just temporary implementation
+translateDeclSpecs :: [CDeclSpec] -> Type  -- TODO: just temporary implementation, should use the State monad
 translateDeclSpecs (decl:decls) = case decl of
   CTypeSpec (CVoidType _) -> tVoid
   CTypeSpec (CCharType _) -> tChar
   CTypeSpec (CShortType _) -> tShort
   CTypeSpec (CIntType _) -> tInt
-  CTypeSpec (CLongType _) -> tLong
+  CTypeSpec (CLongType _) -> tLong  -- TODO "long long int" will just return "long"
   CTypeSpec (CFloatType _) -> tFloat
   CTypeSpec (CDoubleType _) -> tDouble
   CTypeSpec (CSignedType _) -> tSigned
@@ -39,6 +39,11 @@ translateDeclSpecs (decl:decls) = case decl of
   CTypeSpec (CBoolType _) -> tBool
   CTypeSpec (CComplexType _) -> tComplex
   CTypeSpec (CInt128Type _) -> tInt128
+  CTypeSpec (CSUType (CStruct CStructTag (Just (Ident sId _ _)) _ _ _) _) -> TCon (Tycon sId Star)  -- TODO: same as TypeDef (just few rows below)
+  CTypeSpec (CSUType (CStruct CStructTag Nothing _ _ _) _ ) -> tError  -- TODO
+  CTypeSpec (CSUType (CStruct CUnionTag (Just (Ident sId _ _)) _ _ _) _) -> TCon (Tycon sId Star)  -- TODO: same as TypeDef
+  CTypeSpec (CSUType (CStruct CUnionTag Nothing _ _ _) _) -> tError  -- TODO
+  CTypeSpec (CTypeDef (Ident sId _ _) _) -> TVar (Tyvar sId Star)  -- TODO: why just Star, we should store it in the monad (and the name as well)
   -- TODO: from here
   CTypeQual (CConstQual _) -> toConst $ translateDeclSpecs decls
   CTypeQual (CVolatQual _) -> translateDeclSpecs decls  -- TODO
@@ -90,9 +95,26 @@ translateDerivedDecl t (dDecl:dDecls) =
           translatesDerivedDecl [] = return []
         in do
           types <- translatesDerivedDecl decls
-          return $ (foldl TAp (getTupleOp $ length types) types) `fn` t'
+          return $ foldl TAp (getTupleOp $ length types) types `fn` t'
       -- new-style functions (variadic)
       CFunDeclr (Right (decls, True)) _ _ -> return tError  -- TODO
+
+extractParameters :: [CDecl] -> TState [Expl]
+extractParameters (decl:decls) = case decl of
+    CDecl declSpecs [] _ ->
+      extractParameters decls
+    CDecl declSpecs [(Nothing, _, _)] _ ->
+      extractParameters decls
+    CDecl declSpecs [(Just (CDeclr Nothing derived _ _ _), _, _)] _ ->
+      extractParameters decls
+    CDecl declSpecs [(Just (CDeclr (Just (Ident sId _ _)) derived _ _ _), _, _)] _ -> do
+      storeName sId
+      name <- scopedName sId
+      others <- extractParameters decls
+      scheme <- toScheme <$> translateDerivedDecl (translateDeclSpecs declSpecs) derived
+      return $ (name, scheme, []) : others
+extractParameters [] = return []
+
 
 instance Transform CTranslUnit where
   transform (CTranslUnit [] _) = return []
@@ -128,11 +150,11 @@ instance FindReturn CStat where
       aReturn <- findReturn a
       bReturn <- findReturn b
       return (aReturn ++ bReturn)
-    CIf _ a (Nothing) _ -> findReturn a
+    CIf _ a Nothing _ -> findReturn a
     CSwitch _ a _ -> findReturn a
     CWhile _ a _ _ -> findReturn a
     CFor _ _ _ a _ -> findReturn a
-    CReturn (Nothing) _ -> return [Var "()"]
+    CReturn Nothing _ -> return [Var "()"]
     CReturn (Just a) _ -> do
       expr <- transformExpr a
       return [expr]
@@ -161,45 +183,45 @@ transformExpr cExpr = let
   in case cExpr of
   -- exprs is guaranteed to have at least 2 elements
   CComma exprs _ -> do
-    transs <- (transforms exprs)
+    transs <- transforms exprs
     return $ foldl1
       (\a b -> Ap (Ap (Var commaOpFunc) a) b)
       transs
   CAssign op lExpr rExpr _ -> do
-    lTrans <- (transformExpr lExpr)
-    rTrans <- (transformExpr rExpr)
+    lTrans <- transformExpr lExpr
+    rTrans <- transformExpr rExpr
     return $ ap2
       (Var $ operatorFunction op)
       lTrans
       rTrans
   -- this is the ternary operator
   CCond cExpr (Just tExpr) fExpr _ -> do
-    cTrans <- (transformExpr tExpr)
-    tTrans <- (transformExpr tExpr)
-    fTrans <- (transformExpr fExpr)
+    cTrans <- transformExpr tExpr
+    tTrans <- transformExpr tExpr
+    fTrans <- transformExpr fExpr
     return $ ap3
       (Var ternaryOpFunc)
       cTrans
       tTrans
       fTrans
   -- this is elvis (supported by gnu)
-  CCond cExpr (Nothing) fExpr _ -> do
-    cTrans <- (transformExpr cExpr)
-    fTrans <- (transformExpr fExpr)
+  CCond cExpr Nothing fExpr _ -> do
+    cTrans <- transformExpr cExpr
+    fTrans <- transformExpr fExpr
     return $ ap2
       (Var elvisOpFunc)
       cTrans
       fTrans
   CBinary op lExpr rExpr _ -> do
-    lTrans <- (transformExpr lExpr)
-    rTrans <- (transformExpr rExpr)
+    lTrans <- transformExpr lExpr
+    rTrans <- transformExpr rExpr
     return $ ap2
       (Var $ operatorFunction op)
       lTrans
       rTrans
   -- TODO: CCast
   CUnary op expr _ -> do
-    trans <- (transformExpr expr)
+    trans <- transformExpr expr
     return $ Ap
       (Var $ operatorFunction op)
       trans
@@ -208,8 +230,8 @@ transformExpr cExpr = let
   -- ditto align
   -- TODO: CComplexReal
   CIndex aExpr iExpr _ -> do
-    aTrans <- (transformExpr aExpr)
-    iTrans <- (transformExpr iExpr)
+    aTrans <- transformExpr aExpr
+    iTrans <- transformExpr iExpr
     return $ ap2
       (Var indexOpFunc)
       aTrans
@@ -223,14 +245,14 @@ transformExpr cExpr = let
       (foldl Ap (Var tuple) eTrans)
   -- sExpr->mId
   CMember sExpr mId True _ -> do
-    member <- (getMember mId)
+    member <- getMember mId
     sTrans <- transformExpr sExpr
     return $ Ap
       (Var member)
       (deref sTrans)
   -- sExpr.mId
   CMember sExpr mId False _ -> do
-    member <- (getMember mId)
+    member <- getMember mId
     sTrans <- transformExpr sExpr
     return $ Ap
       (Var member)
@@ -267,32 +289,72 @@ instance Transform CExpr where
     return [([],[[("TODO", [([],expr)])]])]  -- TODO
 
 instance Transform CFunDef where  -- TODO: make this and CHMFunDef use same bits of code
-  transform (CFunDef specs (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _) decls stmt _) = do
-    storeName sId
-    name <- scopedName sId
-    fType <- translateDerivedDecl (translateDeclSpecs specs) derivedDecls
-    enterScope sId
-    transStmt <- transform stmt  -- TODO
-    leaveScope
-    return $ ([(name, toScheme $ fType, [])],[]) : transStmt
+  transform (CFunDef specs (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _) decls stmt _) =
+    let
+      typeSignatures name fType = case head derivedDecls of
+        -- old-style
+        CFunDeclr (Left idents) _ _ ->
+          return ([(name, toScheme fType, [])], [])  -- TODO
+        -- not var-args
+        CFunDeclr (Right (parDecls, False)) _ _ -> do
+          pars <- extractParameters parDecls
+          return ((name, toScheme fType, []) : pars, [])
+        -- var-args
+        CFunDeclr (Right (parDecls, True)) _ _ -> do
+          pars <- extractParameters parDecls
+          return ((name, toScheme fType, []) : pars, [])  -- TODO
+        _ -> return ([(name, toScheme tError, [])],[])  -- TODO
+    in do
+      storeName sId
+      name <- scopedName sId
+      fType <- translateDerivedDecl (translateDeclSpecs specs) derivedDecls
+      enterScope sId
+      types <- typeSignatures name fType
+      transStmt <- transform stmt
+      leaveScope
+      return $ types : transStmt
 
 instance Transform CDecl where  -- TODO
-  transform (CDecl cDeclSpecs cDecls _) = return []
+  transform (CDecl specs declrs a) = case declrs of  -- TODO
+    (Just (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _), Nothing, Nothing):rest -> do
+      storeName sId
+      name <- scopedName sId
+      transType <- translateDerivedDecl (translateDeclSpecs specs) derivedDecls
+      restTrans <- transform (CDecl specs rest a)
+      return $ ([(name, toScheme transType, [])], []) : restTrans
+    [] -> return []
   transform (CStaticAssert cExpr cStrLit _) = return []
 
 instance Transform CStrLit where
   transform (CStrLit (CString s _) _) =
     return [([],[[("TODO", [([],Lit $ LitStr s)])]])]  -- TODO
 
-instance Transform CHMFunDef where  -- TODO
-  transform (CHMFunDef head (CFunDef specs (CDeclr (Just (Ident sId _ _)) _ _ _ _) decls stmt _) _) = do  -- TODO
-    storeName sId
-    name <- scopedName sId
-    enterScope sId
-    transHead <- transform head
-    transStmt <- transform stmt
-    leaveScope
-    return $ ([(name, toScheme $ translateDeclSpecs specs, [])],[]) : transHead ++ transStmt
+instance Transform CHMFunDef where
+  transform (CHMFunDef chmHead (CFunDef specs (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _) decls stmt _) _) =  -- TODO
+    let
+      typeSignatures name fType = case head derivedDecls of
+        -- old-style
+        CFunDeclr (Left idents) _ _ ->
+          return ([(name, toScheme fType, [])], [])  -- TODO
+        -- not var-args
+        CFunDeclr (Right (parDecls, False)) _ _ -> do
+          pars <- extractParameters parDecls
+          return ((name, toScheme fType, []) : pars, [])
+        -- var-args
+        CFunDeclr (Right (parDecls, True)) _ _ -> do
+          pars <- extractParameters parDecls
+          return ((name, toScheme fType, []) : pars, [])  -- TODO
+        _ -> return ([(name, toScheme tError, [])],[])  -- TODO
+    in do
+      storeName sId
+      name <- scopedName sId
+      fType <- translateDerivedDecl (translateDeclSpecs specs) derivedDecls
+      enterScope sId
+      types <- typeSignatures name fType
+      transHead <- transform chmHead
+      transStmt <- transform stmt
+      leaveScope
+      return $ transHead ++ types : transStmt
 
 instance Transform CStat where
   transform cStat = case cStat of
@@ -329,7 +391,7 @@ instance Transform CStat where
       tTrans <- transform tStmt
       fTrans <- transform fStmt
       return $ ([],[[("TODO", [([],transExpr)])]]) : (tTrans ++ fTrans)  -- TODO
-    CIf expr tStmt (Nothing) _ -> do
+    CIf expr tStmt Nothing _ -> do
       transExpr <- transformExpr expr
       tTrans <- transform tStmt
       return $ ([],[[("TODO", [([],transExpr)])]]) : tTrans  -- TODO
@@ -350,12 +412,13 @@ instance Transform CStat where
     CCont _ ->  return []
     CBreak _ -> return []
     CReturn (Just a) _ -> return []  -- TODO: has to connect to the parent function
-    CReturn (Nothing) _ -> return []  -- TODO: has to connect to the parent function
+    CReturn Nothing _ -> return []  -- TODO: has to connect to the parent function
     CAsm _ _ -> return []
 
 instance Transform CBlockItem where
   transform (CBlockStmt stmt) = transform stmt
-  transform (CBlockDecl _) = return []  -- TODO: new variable (should be renamed + shadowing)
+  -- new variable
+  transform (CBlockDecl cDecl) = transform cDecl
   transform (CNestedFunDef _) = return []  -- TODO: gnu thing, so maybe not-todo
 
 instance Transform CHMHead where
