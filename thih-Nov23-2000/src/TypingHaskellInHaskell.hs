@@ -444,6 +444,7 @@ data Literal = LitInt  Integer
              | LitRat  Rational
              | LitFloat String  -- (CHM) added like this to mirror the Language.C definition
              | LitStr  String
+             | LitVoid
              deriving(Show)
 
 tiLit            :: Literal -> TI ([Pred],Type)
@@ -454,6 +455,7 @@ tiLit (LitStr _)  = return ([], tString)
 tiLit (LitRat _)  = do v <- newTVar Star
                        return ([IsIn "Fractional" v], v)
 tiLit (LitFloat _)  = return ([], tFloat)  -- (CHM)
+tiLit LitVoid  = return ([], tVoid)  -- (CHM)
 
 -----------------------------------------------------------------------------
 -- Pat:		Patterns
