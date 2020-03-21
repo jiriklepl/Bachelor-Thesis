@@ -144,48 +144,12 @@ instance Transform CExtDecl where
   -- TODO: transform  (CHMIDefExt a) = transform a
   transform  (CAsmExt  a _) = transform a
 
-class FindReturn a where
-  findReturn :: a -> TState [Expr]
+-- these are better than the corresponding foldl because of the stronger type safety
+ap2 :: Expr -> Expr -> Expr -> Expr
+ap3 :: Expr -> Expr -> Expr -> Expr -> Expr
 
-instance FindReturn CStat where
-  findReturn stmt = case stmt of
-    CLabel _ a _ _ -> findReturn a
-    CCase _ a _ -> findReturn a
-    CCases _ _ a _ -> findReturn a
-    CDefault a _ -> findReturn a
-    CCompound _ [] _ -> return []
-    CCompound a (first:rest) b -> do
-      firstReturn <- findReturn first
-      otherReturns <- findReturn (CCompound a rest b)
-      return (firstReturn ++ otherReturns)
-    CIf _ a (Just b) _ -> do
-      aReturn <- findReturn a
-      bReturn <- findReturn b
-      return (aReturn ++ bReturn)
-    CIf _ a Nothing _ -> findReturn a
-    CSwitch _ a _ -> findReturn a
-    CWhile _ a _ _ -> findReturn a
-    CFor _ _ _ a _ -> findReturn a
-    CReturn Nothing _ -> return [Var "()"]
-    CReturn (Just a) _ -> do
-      expr <- transformExpr a
-      return [expr]
-    CExpr _ _ -> return []
-    CGoto _ _ -> return []
-    CGotoPtr _ _ -> return []
-    CCont _ ->  return []
-    CBreak _ -> return []
-    CAsm _ _ -> return []
-
-instance FindReturn CBlockItem where
-  findReturn (CBlockStmt stmt) = findReturn stmt
-  findReturn (CBlockDecl _) = return []
-  findReturn (CNestedFunDef _) = return []
-
-transformExpr :: CExpr -> TState Expr
-transformExpr cExpr = let
-    ap2 f a b = Ap (Ap f a) b
-    ap3 f a b c = Ap (Ap (Ap f a) b) c
+ap2 f a b = Ap (Ap f a) b
+ap3 f a b c = Ap (Ap (Ap f a) b) c
 
     transforms [] = return []
     transforms (hExpr:tExprs) = do
