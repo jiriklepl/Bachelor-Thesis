@@ -443,5 +443,27 @@ instance Transform CBlockItem where
   transform (CBlockDecl cDecl) = transform cDecl
   transform (CNestedFunDef _) = return []  -- TODO: gnu thing, so maybe not-todo
 
+transformConstraint (CHMClassConstr (Ident id _ _) types _) =
+  let
+    translateType (CHMCType declSpecs _) = translateDeclSpecs declSpecs
+    translateTypes (t:ts) = do
+      transT <- translateType t
+      transTs <- translateTypes ts
+      return $ transT : transTs
+    translateTypes [] = return []
+    count = length types
+  in do
+    transTypes <- translateTypes types
+    if count == 1
+      then return $ IsIn id $ head transTypes
+      else return $ IsIn id $ foldl TAp (getTupleOp count) transTypes
+
 instance Transform CHMHead where
-  transform (CHMHead types constraints _) = return []  -- TODO
+  transform (CHMHead types [] _) = do
+    foldl1 (>>) $ storeName . (\(Ident id _ _) -> id) <$> types
+    foldl1 (>>) $ (\(Ident id _ _) -> scopedName id >>= chmAddVariable) <$> types
+    return []
+  transform (CHMHead types constraints a) = do
+    transform (CHMHead types [] a)
+    foldl1 (>>) $ (\c -> transformConstraint c >>= chmAddClass) <$> constraints
+    return []
