@@ -103,8 +103,8 @@ instance HasKind Tycon where
 instance HasKind Type where
   kind (TCon tc) = kind tc
   kind (TVar u)  = kind u
-  kind (TAp t _) = case (kind t) of
-                     (Kfun _ k) -> k
+  kind (TAp t _) = case kind t of
+                     Kfun _ k -> k
 
 -----------------------------------------------------------------------------
 -- Subst:	Substitutions
