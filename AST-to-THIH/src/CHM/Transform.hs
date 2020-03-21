@@ -37,25 +37,27 @@ toConst c = TAp tConst c
 
 translateDeclSpecs :: [CDeclSpec] -> TState Type  -- TODO: just temporary implementation, should use the State monad
 translateDeclSpecs (decl:decls) = case decl of
-  CTypeSpec (CVoidType _) -> tVoid
-  CTypeSpec (CCharType _) -> tChar
-  CTypeSpec (CShortType _) -> tShort
-  CTypeSpec (CIntType _) -> tInt
-  CTypeSpec (CLongType _) -> tLong  -- TODO "long long int" will just return "long"
-  CTypeSpec (CFloatType _) -> tFloat
-  CTypeSpec (CDoubleType _) -> tDouble
-  CTypeSpec (CSignedType _) -> tSigned
-  CTypeSpec (CUnsigType _) -> tUnsig
-  CTypeSpec (CBoolType _) -> tBool
-  CTypeSpec (CComplexType _) -> tComplex
-  CTypeSpec (CInt128Type _) -> tInt128
-  CTypeSpec (CSUType (CStruct CStructTag (Just (Ident sId _ _)) _ _ _) _) -> TCon (Tycon sId Star)  -- TODO: same as TypeDef (just few rows below)
-  CTypeSpec (CSUType (CStruct CStructTag Nothing _ _ _) _ ) -> tError  -- TODO
-  CTypeSpec (CSUType (CStruct CUnionTag (Just (Ident sId _ _)) _ _ _) _) -> TCon (Tycon sId Star)  -- TODO: same as TypeDef
-  CTypeSpec (CSUType (CStruct CUnionTag Nothing _ _ _) _) -> tError  -- TODO
-  CTypeSpec (CTypeDef (Ident sId _ _) _) -> TVar (Tyvar sId Star)  -- TODO: why just Star, we should store it in the monad (and the name as well)
+  CTypeSpec (CVoidType _) -> return tVoid
+  CTypeSpec (CCharType _) -> return tChar
+  CTypeSpec (CShortType _) -> return tShort
+  CTypeSpec (CIntType _) -> return tInt
+  CTypeSpec (CLongType _) -> return tLong  -- TODO "long long int" will just return "long"
+  CTypeSpec (CFloatType _) -> return tFloat
+  CTypeSpec (CDoubleType _) -> return tDouble
+  CTypeSpec (CSignedType _) -> return tSigned
+  CTypeSpec (CUnsigType _) -> return tUnsig
+  CTypeSpec (CBoolType _) -> return tBool
+  CTypeSpec (CComplexType _) -> return tComplex
+  CTypeSpec (CInt128Type _) -> return tInt128
+  CTypeSpec (CSUType (CStruct CStructTag (Just (Ident sId _ _)) _ _ _) _) -> return $ TCon (Tycon sId Star)  -- TODO: same as TypeDef (just few rows below)
+  CTypeSpec (CSUType (CStruct CStructTag Nothing _ _ _) _ ) -> return tError  -- TODO
+  CTypeSpec (CSUType (CStruct CUnionTag (Just (Ident sId _ _)) _ _ _) _) -> return $ TCon (Tycon sId Star)  -- TODO: same as TypeDef
+  CTypeSpec (CSUType (CStruct CUnionTag Nothing _ _ _) _) -> return tError  -- TODO
+  CTypeSpec (CTypeDef (Ident sId _ _) _) -> do
+    name <- scopedName sId
+    return $ TVar (Tyvar name Star)  -- TODO: why just Star, we should store it in the monad (and the name as well)
   -- TODO: from here
-  CTypeQual (CConstQual _) -> toConst $ translateDeclSpecs decls
+  CTypeQual (CConstQual _) -> toConst <$> translateDeclSpecs decls  -- works only with west const :(
   CTypeQual (CVolatQual _) -> translateDeclSpecs decls  -- TODO
   CTypeQual (CRestrQual _) -> translateDeclSpecs decls  -- TODO
   CTypeQual (CAtomicQual _) -> translateDeclSpecs decls  -- TODO
