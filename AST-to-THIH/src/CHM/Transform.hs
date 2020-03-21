@@ -267,28 +267,31 @@ instance Transform CExpr where
 instance Transform CFunDef where  -- TODO: make this and CHMFunDef use same bits of code
   transform (CFunDef specs (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _) decls stmt _) =
     let
-      typeSignatures name fType = case head derivedDecls of
-        -- old-style
-        CFunDeclr (Left idents) _ _ ->
-          return ([(name, toScheme fType, [])], [])  -- TODO
-        -- not var-args
-        CFunDeclr (Right (parDecls, False)) _ _ -> do
-          pars <- extractParameters parDecls
-          return ((name, toScheme fType, []) : pars, [])
-        -- var-args
-        CFunDeclr (Right (parDecls, True)) _ _ -> do
-          pars <- extractParameters parDecls
-          return ((name, toScheme fType, []) : pars, [])  -- TODO
-        _ -> return ([(name, toScheme tError, [])],[])  -- TODO
+      typeSignatures name fType = do
+        scheme <- chmScheme fType
+        case head derivedDecls of
+          -- old-style
+          CFunDeclr (Left idents) _ _ ->
+            return $ pure ([(name, scheme, [])], [])  -- TODO
+          -- not var-args
+          CFunDeclr (Right (parDecls, False)) _ _ -> do
+            pars <- extractParameters parDecls
+            return $ ([(name, scheme, [])], []) : pars
+          -- var-args
+          CFunDeclr (Right (parDecls, True)) _ _ -> do
+            pars <- extractParameters parDecls
+            return $ ([(name, scheme, [])], []) : pars  -- TODO
+          _ -> return $ pure ([(name, toScheme tError, [])],[])  -- TODO
     in do
       storeName sId
       name <- scopedName sId
-      fType <- translateDerivedDecl (translateDeclSpecs specs) derivedDecls
-      enterScope sId
+      pureType <- translateDeclSpecs specs
+      fType <- translateDerivedDecl pureType derivedDecls
+      enterFunction sId
       types <- typeSignatures name fType
       transStmt <- transform stmt
-      leaveScope
-      return $ types : transStmt
+      leaveFunction
+      return $ types ++ transStmt
 
 instance Transform CDecl where  -- TODO
   transform (CDecl specs declrs a) = case declrs of  -- TODO
