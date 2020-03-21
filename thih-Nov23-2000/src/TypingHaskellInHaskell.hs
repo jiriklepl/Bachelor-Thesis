@@ -79,7 +79,7 @@ tInt128 = TCon (Tycon "Int128" Star)
 
 tList    = TCon (Tycon "[]" (Kfun Star Star))
 tArrow   = TCon (Tycon "(->)" (Kfun Star (Kfun Star Star)))
-tTuple2  = TCon (Tycon "(,)" (Kfun Star (Kfun Star Star)))
+tTuple2  = TCon (Tycon "(,)2" (Kfun Star (Kfun Star Star)))
 
 tString    :: Type
 tString     = list tChar
