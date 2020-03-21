@@ -11,21 +11,31 @@ import CHM.TransformMonad
 class Transform a where
   transform :: a -> TState Program
 
-typeInfer :: Transform a => a -> Program
-typeInfer = runTState . transform
+getTransformResult :: Transform a => a -> Program
+getTransformResult = fst . runTState . transform
+
+typeInfer :: Transform a => a -> [Assump]
+typeInfer a =
+  let
+    (program, TransformMonad{memberClasses=mcs, builtIns=bis}) =
+      runTState . transform $ a
+  in
+    case mcs initialEnv of
+      Nothing -> ["programEnvironment" :>: toScheme tError]  -- TODO
+      Just env -> tiProgram env bis program
+
+collapse :: Program -> BindGroup
+collapse ((expls, impls) : rest) =
+  let
+    (restExpls, restImpls) = collapse rest
+  in (expls ++ restExpls, impls ++ restImpls)
+collapse [] = ([],[])
 
 toConst :: Type -> Type
 toConst c@(TAp tConst a) = c
 toConst c = TAp tConst c
 
-scopedName :: Id -> TState Id
-scopedName id = do
-  scope <- findName id
-  case scope of
-    Just s -> return $ renameScoped s id
-    _ -> return $ "@Error:" ++ id
-
-translateDeclSpecs :: [CDeclSpec] -> Type  -- TODO: just temporary implementation, should use the State monad
+translateDeclSpecs :: [CDeclSpec] -> TState Type  -- TODO: just temporary implementation, should use the State monad
 translateDeclSpecs (decl:decls) = case decl of
   CTypeSpec (CVoidType _) -> tVoid
   CTypeSpec (CCharType _) -> tChar
