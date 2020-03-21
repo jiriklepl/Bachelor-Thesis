@@ -907,10 +907,10 @@ data CHMType a
   = CHMCType
     [CDeclarationSpecifier a] -- C type
     a
-  | CHMCDeclType
+  | CHMCDeclType  -- TODO: this shouldn't be here as it is
     (CDeclarator a)          -- C decl (function, struct, anything...)
     a
-  | CHMParType
+  | CHMParType  -- TODO: ditto
     (CHMType a)
     (CHMParameters a)
     a
