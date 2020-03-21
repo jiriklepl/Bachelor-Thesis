@@ -48,18 +48,33 @@ module CHM.TransformMonad
   , indexOpFunc
   , refFunc
   , derefFunc
+  , returnFunc
+  , caseFunc
   , ref
   , deref
   , pointer
   , findName
   , storeName
+  , scopedName
+  , getNextAnon
+  , enterCHMHead
+  , chmAddClass
+  , chmAddVariable
+  , leaveCHMHead
+  , chmScheme
   , renameScoped
   , getSwitchName
+  , getFunctionName
   , enterScope
   , leaveScope
   , enterSwitch
   , leaveSwitch
+  , enterFunction
+  , leaveFunction
+  , addFunctionReturn
+  , getFunctionReturns
   , getTupleOp
+  , getTupleCon
   , getTuple
   , getMember
   , runTState
@@ -74,12 +89,17 @@ import Language.C.Syntax
 import Language.C.Data.Ident (Ident(..))
 
 type Scope = (Id, Int, Set.Set Id)
+type ReturnExpr = Expr
 
 data TransformMonad = TransformMonad
   { tuples :: Set.Set Int  -- memory of created tuple makers
   , nested :: [Scope]  -- to avoid name collisions
   , switchScopes :: [Int]
+  , functionScopes :: [(Id, [ReturnExpr])]
   , lastScope :: Int
+  , anonymousCounter :: Int
+  , typeVariables :: [Set.Set Id]
+  , variableClasses :: [[Pred]]
   , createdClasses :: Set.Set Ident  -- memory of created member accessors
   , memberClasses :: EnvTransformer
   , builtIns :: [Assump]  -- all created symbols
@@ -96,7 +116,7 @@ tTuple3  :: Type
 tPointer = TCon (Tycon "@Pointer" (Kfun Star Star))
 tConst = TCon (Tycon "@Const" (Kfun Star Star))
 tError = TCon (Tycon "@Error" Star)
-tTuple3 = TCon (Tycon "(,,)" (Kfun Star (Kfun Star (Kfun Star Star))))
+tTuple3 = TCon (Tycon "(,,)3" (Kfun Star (Kfun Star (Kfun Star Star))))
 
 -- pointer reference & dereference functions
 -- TODO: say something clever here
@@ -211,6 +231,9 @@ indexOpFunc   :: Id
 refFunc :: Id
 derefFunc :: Id
 
+returnFunc :: Id
+caseFunc :: Id
+
 mulOpFunc     = "*2"
 divOpFunc     = "/2"
 modOpFunc     = "%2"
@@ -259,6 +282,9 @@ indexOpFunc   = "[]2"
 refFunc       = "&1"
 derefFunc     = "*1"
 
+returnFunc     = "@return"
+caseFunc     = "@case"
+
 initTransformMonad :: TransformMonad
 initTransformMonad = TransformMonad
   { tuples = Set.empty
@@ -266,13 +292,19 @@ initTransformMonad = TransformMonad
   , nested = [("global",0,Set.empty)]
   , lastScope = 0
   , switchScopes = []
+  , functionScopes = []
+  , anonymousCounter = 0
+  , typeVariables = [Set.empty]
+  , variableClasses = [[]]
   , memberClasses =
     let
       aVar = Tyvar "a" Star
       bVar = Tyvar "b" Star
       aTVar = TVar aVar
       bTVar = TVar bVar
-    in addClass "Add" []
+    -- all built-in classes (work in -- TODO)
+    in  addClass "Num" []
+    <:> addClass "Add" []
     <:> addClass "Sub" []
     <:> addClass "Mul" []
     <:> addClass "Div" []
@@ -282,6 +314,8 @@ initTransformMonad = TransformMonad
     <:> addClass "LG" []
     <:> addClass "BinOp" []
     <:> addClass "LogOp" []
+    -- all built-in instances (work in -- TODO)
+    <:> addInst [] (IsIn "Num" tInt)
     <:> addInst [] (IsIn "Add" (pair tInt tInt))
     <:> addInst [] (IsIn "Add" (pair tFloat tFloat))
     <:> addInst [] (IsIn "Add" (pair tDouble tDouble))
@@ -309,20 +343,35 @@ initTransformMonad = TransformMonad
     <:> addInst [] (IsIn "BinOp"  (pair (pointer aTVar) (pointer bTVar)))
   , builtIns =
     let
+      -- type variables
       aVar = Tyvar "a" Star
       bVar = Tyvar "b" Star
+      -- variable types
       aTVar = TVar aVar
       bTVar = TVar bVar
+      -- functions of the form 'a -> a -> a'
       aaaFuncWithClasses cs = quantify [aVar] (cs :=> (aTVar `fn` aTVar `fn` aTVar))
+      -- functions of the form '(a, a) -> a'
+      t2aaaFuncWithClasses cs = quantify [aVar] (cs :=> (tupledTypes [aTVar, aTVar] `fn` aTVar))
+      -- functions of the form 'a -> a -> Void'
+      aaVFuncWithClasses cs = quantify [aVar] (cs :=> (aTVar `fn` aTVar `fn` tVoid))
+      -- functions of the form '(a, a) -> Void'
+      t2aaVFuncWithClasses cs = quantify [aVar] (cs :=> (tupledTypes [aTVar, aTVar] `fn` tVoid))
+      -- functions of the form 'a -> b -> a'
       abaFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (aTVar `fn` bTVar `fn` aTVar))
+      -- functions of the form '(a, b) -> a'
+      t2abaFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (tupledTypes [aTVar, bTVar] `fn` aTVar))
+      -- functions of the form 'a -> b -> Bool'
       abBFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (aTVar `fn` bTVar `fn` tBool))
+      -- functions of the form '(a, b) -> Bool'
+      t2abBFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (tupledTypes [aTVar, bTVar] `fn` tBool))
     in
       [ addOpFunc :>: abaFuncWithClasses [IsIn "Add" (pair aTVar bTVar)]
       , subOpFunc :>: abaFuncWithClasses [IsIn "Sub" (pair aTVar bTVar)]
       , mulOpFunc :>: abaFuncWithClasses [IsIn "Mul" (pair aTVar bTVar)]
       , divOpFunc :>: abaFuncWithClasses [IsIn "Div" (pair aTVar bTVar)]
       , modOpFunc :>: abaFuncWithClasses [IsIn "Mod" (pair aTVar bTVar)]
-      , assOpFunc :>: abBFuncWithClasses []
+      , assOpFunc :>: aaaFuncWithClasses []
       , addAssOpFunc :>: abaFuncWithClasses [IsIn "Add" (pair aTVar bTVar)]
       , subAssOpFunc :>: abaFuncWithClasses [IsIn "Sub" (pair aTVar bTVar)]
       , mulAssOpFunc :>: abaFuncWithClasses [IsIn "Mul" (pair aTVar bTVar)]
@@ -339,7 +388,9 @@ initTransformMonad = TransformMonad
       , elvisOpFunc :>: quantify [aVar, bVar] ([] :=> (aTVar `fn` bTVar `fn` bTVar)) -- TODO: aTVar has to be 0 comparable
       , indexOpFunc :>: quantify [aVar, bVar] ([] :=> (pointer aTVar `fn` bTVar `fn` aTVar)) -- TODO: bTVar has to be integral
       , refFunc :>: quantify [aVar] ([] :=> (aTVar `fn` pointer aTVar))
-      , derefFunc :>: quantify [aVar, bVar] ([] :=> (pointer aTVar `fn` aTVar))
+      , derefFunc :>: quantify [aVar] ([] :=> (pointer aTVar `fn` aTVar))
+      , returnFunc :>: aaaFuncWithClasses []
+      , caseFunc :>: quantify [aVar] ([] :=> (aTVar `fn` aTVar `fn` tBool))
       ]
   }
 
@@ -350,6 +401,11 @@ getSwitchName :: TState Id
 getSwitchName = do
   TransformMonad{switchScopes=sScopes} <- get
   return $ "@Switch" ++ (show . head) sScopes
+
+getFunctionName :: TState Id
+getFunctionName = do
+  TransformMonad{functionScopes=fScopes} <- get
+  scopedName . fst . head $ fScopes
 
 findName :: Id -> TState (Maybe Scope)
 findName id = do
@@ -372,6 +428,95 @@ storeName id = do
       put state
         { nested = (scopeId, count, id `Set.insert` names) : rest
         }
+
+scopedName :: Id -> TState Id
+scopedName id = do
+  scope <- findName id
+  case scope of
+    Just s -> return $ renameScoped s id
+    _ -> return $ "@Error:" ++ id
+
+getNextAnon :: TState Int
+getNextAnon = do
+  state@TransformMonad{anonymousCounter=i} <- get
+  put state {anonymousCounter=i + 1}
+  return i
+
+enterCHMHead :: TState ()
+enterCHMHead = do
+  state@TransformMonad{variableClasses=vs,typeVariables=ts} <- get
+  put state
+    { variableClasses = [] : vs
+    , typeVariables = Set.empty : ts
+    }
+
+chmAddVariable :: Id -> TState ()
+chmAddVariable id = do
+  state@TransformMonad{typeVariables=ts} <- get
+  case ts of
+    t:rest -> put state
+      { typeVariables = (id `Set.insert` t) : rest
+      }
+    _ -> return . error $ "not in chm block"
+
+chmAddClass :: Pred -> TState ()
+chmAddClass p = do
+  state@TransformMonad{variableClasses=cs} <- get
+  case cs of
+    c:rest -> put state
+      { variableClasses = (p : c) : rest
+      }
+    _ -> return . error $ "not in chm block"
+
+leaveCHMHead :: TState ()
+leaveCHMHead = do
+  state@TransformMonad{variableClasses=vs,typeVariables=ts} <- get
+  put state
+    { variableClasses = tail vs
+    , typeVariables = tail ts
+    }
+
+-- filterTypes takes a 'type' and a set of 'unfiltered' and return 'filtered'
+-- which contains the types from the 'unfiltered' set that contribute
+-- towards the 'type'
+filterTypes :: Type -> Set.Set Id -> ([Tyvar], Set.Set Id)
+filterTypes t tSet
+  | tSet == Set.empty = ([], Set.empty)
+  | otherwise = case t of
+    TAp t1 t2 ->
+      let
+        (ts, tSet') = filterTypes t1 tSet
+        (tsFinal, tSetFinal) = filterTypes t2 tSet'
+      in
+        (ts ++ tsFinal, tSetFinal)
+    TVar tv@(Tyvar id _) -> if id `Set.member` tSet
+      then ([tv], id `Set.delete` tSet)
+      else ([], tSet)
+    _ -> ([], tSet)
+
+depends :: Type -> [Tyvar] -> Bool
+depends (TVar t@(Tyvar id _)) ts = t `elem` ts
+depends (TAp t1 t2) ts
+  =  depends t2 ts
+  || depends t1 ts
+depends _ ts = False
+
+filterClasses :: [Tyvar] -> [Pred] -> [Pred]
+filterClasses ts (pred@(IsIn id t):preds) = if depends t ts
+  then pred : filterClasses ts preds
+  else filterClasses ts preds
+filterClasses _ [] = []
+
+chmScheme :: Type -> TState Scheme
+chmScheme t = do
+  state@TransformMonad
+    { typeVariables = tvs
+    , variableClasses = vcs
+    } <- get
+  let {
+    (types, _) = filterTypes t $ head tvs;
+    classes = filterClasses types $ head vcs
+  } in return $ quantify types $ classes :=> t
 
 enterScope :: Id -> TState ()
 enterScope id = do
@@ -414,13 +559,64 @@ leaveSwitch = do
         , switchScopes = ss
         }
 
+-- implicitly enters new scope
+enterFunction :: Id -> TState ()
+enterFunction id = do
+  state@TransformMonad{nested=ns, lastScope = n, functionScopes = fScopes} <- get
+  put state
+    { nested = (id, n + 1, Set.empty) : ns
+    , lastScope = n + 1
+    , functionScopes = (id, []) : fScopes
+    }
+
+-- implicitly leaves current scope (+ should have the same relationship with enterFunction as enter&leaveScope have)
+leaveFunction :: TState ()
+leaveFunction = do
+  state@TransformMonad{nested=ns, functionScopes = fScopes} <- get
+  case (ns, fScopes) of
+    -- ([top], _) -> leaving the global scope
+    -- (_, []) -> leaving the top-most function
+    (_:rest, f:fs) ->
+      put state
+        { nested = rest
+        , functionScopes = fs
+        }
+
+addFunctionReturn :: ReturnExpr -> TState ()
+addFunctionReturn fReturn = do
+  state@TransformMonad{functionScopes = fScopes} <- get
+  case fScopes of
+    -- [] -> no active function
+    (id, fReturns):rest -> put state
+      {
+        functionScopes = (id, fReturn : fReturns) : rest
+      }
+
+getFunctionReturns :: TState [ReturnExpr]
+getFunctionReturns = do
+  TransformMonad{functionScopes = fScopes} <- get
+  return . snd . head $ fScopes
+
 getTupleOp :: Int -> Type
 getTupleOp n =
   TCon
     ( Tycon
-      ("(" ++ replicate (n - 1) ',' ++ ")")
-      (last $ take 5 $ iterate (Kfun Star) Star)
+      ("(" ++ replicate (n - 1) ',' ++ ")" ++ show n)
+      (last $ take (n + 1) $ iterate (Kfun Star) Star)
     )
+
+tupledTypes :: [Type] -> Type
+tupledTypes ts = foldl TAp (getTupleOp . length $ ts) ts
+
+tupleize :: [Type] -> Type
+tupleize ts = foldr fn (tupledTypes ts) ts
+
+getTupleCon :: Int -> Scheme
+getTupleCon n =
+  let
+    as = [Tyvar ("a" ++ show x) Star | x <- [1..n]]
+  in
+    quantify as ([] :=> tupleize (TVar <$> as))
 
 getTuple :: Int -> TState Id
 getTuple n = do
@@ -431,15 +627,7 @@ getTuple n = do
     put state
       { tuples = n `Set.insert` ts
       , builtIns =
-        ( translate :>:
-          let
-            as = [Tyvar ("a" ++ show x) Star | x <- [1..n]]
-          in quantify
-            as
-            ( [] :=>
-              foldr fn (foldl TAp (getTupleOp n) (TVar <$> as)) (TVar <$> as)
-            )
-        ) : bIs
+        (translate :>: getTupleCon n) : bIs
       }
     return translate
   where translate = "@make_tuple" ++ show n
@@ -473,5 +661,5 @@ getMember id@(Ident sId _ _) =
         }
       return translateId
 
-runTState :: TState a -> a
-runTState a = evalState a initTransformMonad
+runTState :: TState a -> (a,TransformMonad)
+runTState a = runState a initTransformMonad
