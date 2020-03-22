@@ -5,7 +5,10 @@ import Language.C
 import Language.C.System.GCC
 import CHM.Transform
 
-main = parseMyFile "test.chm" >>= typeAST
+main = do
+  ast <- parseMyFile "test.chm"
+  transformAST ast
+  typeAST ast
 
 parseMyFile :: FilePath -> IO CTranslUnit
 parseMyFile input_file =
@@ -22,3 +25,6 @@ printAST = print
 
 typeAST :: CTranslUnit -> IO ()
 typeAST = print . typeInfer
+
+transformAST :: CTranslUnit -> IO ()
+transformAST = print . getTransformResult
