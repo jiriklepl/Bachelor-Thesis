@@ -122,6 +122,8 @@
         "tokentype",
         "toplevel",
         "transs",
+        "tupled",
+        "tupleize",
         "tyident",
         "typechecker",
         "typedefs",
