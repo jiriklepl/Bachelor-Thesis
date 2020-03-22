@@ -88,12 +88,10 @@ import Language.C.Data
 import Language.C.Syntax
 import Language.C.Data.Ident (Ident(..))
 
-type SubScope = ReturnExpr
 data Scope = Scope
   { scopeName :: Id
   , scopeId :: Int
   , scopeVars :: Set.Set Id
-  , subScopes :: [SubScope]
   }
 type ReturnExpr = Expr
 
@@ -102,7 +100,6 @@ initScope name id = Scope
   { scopeName = name
   , scopeId = id
   , scopeVars = Set.empty
-  , subScopes = []
   }
 
 data TransformMonad = TransformMonad
