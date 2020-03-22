@@ -88,8 +88,22 @@ import Language.C.Data
 import Language.C.Syntax
 import Language.C.Data.Ident (Ident(..))
 
-type Scope = (Id, Int, Set.Set Id)
+type SubScope = ReturnExpr
+data Scope = Scope
+  { scopeName :: Id
+  , scopeId :: Int
+  , scopeVars :: Set.Set Id
+  , subScopes :: [SubScope]
+  }
 type ReturnExpr = Expr
+
+initScope :: Id -> Int -> Scope
+initScope name id = Scope
+  { scopeName = name
+  , scopeId = id
+  , scopeVars = Set.empty
+  , subScopes = []
+  }
 
 data TransformMonad = TransformMonad
   { tuples :: Set.Set Int  -- memory of created tuple makers
@@ -289,7 +303,7 @@ initTransformMonad :: TransformMonad
 initTransformMonad = TransformMonad
   { tuples = Set.empty
   , createdClasses = Set.empty
-  , nested = [("global",0,Set.empty)]
+  , nested = [initScope "global" 0]
   , lastScope = 0
   , switchScopes = []
   , functionScopes = []
@@ -395,24 +409,24 @@ initTransformMonad = TransformMonad
   }
 
 renameScoped :: Scope -> Id -> Id
-renameScoped (name, count, _) id = name ++ show count ++ ':' : id
+renameScoped Scope{scopeName = name, scopeId = n} id = name ++ show n ++ ':' : id
 
 getSwitchName :: TState Id
 getSwitchName = do
-  TransformMonad{switchScopes=sScopes} <- get
+  TransformMonad{switchScopes = sScopes} <- get
   return $ "@Switch" ++ (show . head) sScopes
 
 getFunctionName :: TState Id
 getFunctionName = do
-  TransformMonad{functionScopes=fScopes} <- get
+  TransformMonad{functionScopes = fScopes} <- get
   scopedName . fst . head $ fScopes
 
 findName :: Id -> TState (Maybe Scope)
 findName id = do
-  TransformMonad{nested=ns} <- get
+  TransformMonad{nested = ns} <- get
   let {
     recursiveSearch i [] = Nothing;
-    recursiveSearch i (scope@(_, _, names):scopes) =
+    recursiveSearch i (scope@Scope{scopeVars = names} : scopes) =
       if i `Set.member` names
       then
         Just scope
@@ -422,11 +436,11 @@ findName id = do
 
 storeName :: Id -> TState ()
 storeName id = do
-  state@TransformMonad{nested=ns} <- get
+  state@TransformMonad{nested = ns} <- get
   case ns of
-    (scopeId, count, names) : rest ->
+    scope@Scope{scopeVars = names} : rest ->
       put state
-        { nested = (scopeId, count, id `Set.insert` names) : rest
+        { nested = scope{scopeVars = id `Set.insert` names} : rest
         }
 
 scopedName :: Id -> TState Id
@@ -438,8 +452,8 @@ scopedName id = do
 
 getNextAnon :: TState Int
 getNextAnon = do
-  state@TransformMonad{anonymousCounter=i} <- get
-  put state {anonymousCounter=i + 1}
+  state@TransformMonad{anonymousCounter = i} <- get
+  put state {anonymousCounter = i + 1}
   return i
 
 enterCHMHead :: TState ()
@@ -520,67 +534,60 @@ chmScheme t = do
 
 enterScope :: Id -> TState ()
 enterScope id = do
-  state@TransformMonad{nested=ns, lastScope = n} <- get
+  state@TransformMonad{nested = ns, lastScope = n} <- get
   put state
-    { nested = (if null id then fst3 (head ns) else id, n + 1, Set.empty) : ns
+    { nested =
+        initScope
+          (if null id
+              then scopeName (head ns)
+              else id)
+          (n + 1)
+        : ns
     , lastScope = n + 1
     }
 
 leaveScope :: TState ()
 leaveScope = do
-  state@TransformMonad{nested=ns} <- get
-  case ns of
-    -- [top] -> leaving the global scope (-- TODO)
-    _:rest ->
-      put state
-        { nested = rest
-        }
+  state@TransformMonad{nested = ns} <- get
+  put state
+    { nested = tail ns
+    }
 
 -- implicitly enters new scope
 enterSwitch :: TState ()
 enterSwitch = do
-  state@TransformMonad{nested=ns, lastScope = n, switchScopes = sScopes} <- get
+  enterScope ""
+  state@TransformMonad{lastScope = n, switchScopes = sScopes} <- get
   put state
-    { nested = (fst3 (head ns), n + 1, Set.empty) : ns
-    , lastScope = n + 1
-    , switchScopes = (n + 1) : sScopes
+    { switchScopes = (n + 1) : sScopes
     }
 
 -- implicitly leaves current scope (+ should have the same relationship with enterSwitch as enter&leaveScope have)
 leaveSwitch :: TState ()
 leaveSwitch = do
-  state@TransformMonad{nested=ns, switchScopes = sScopes} <- get
-  case (ns, sScopes) of
-    -- ([top], _) -> leaving the global scope (-- TODO)
-    -- (_, []) -> leaving the top-most switch (-- TODO)
-    (_:rest, s:ss) ->
-      put state
-        { nested = rest
-        , switchScopes = ss
-        }
+  leaveScope
+  state@TransformMonad{switchScopes = sScopes} <- get
+  put state
+    { switchScopes = tail sScopes
+    }
 
 -- implicitly enters new scope
 enterFunction :: Id -> TState ()
 enterFunction id = do
-  state@TransformMonad{nested=ns, lastScope = n, functionScopes = fScopes} <- get
+  enterScope id
+  state@TransformMonad{lastScope = n, functionScopes = fScopes} <- get
   put state
-    { nested = (id, n + 1, Set.empty) : ns
-    , lastScope = n + 1
-    , functionScopes = (id, []) : fScopes
+    { functionScopes = (id, []) : fScopes
     }
 
 -- implicitly leaves current scope (+ should have the same relationship with enterFunction as enter&leaveScope have)
 leaveFunction :: TState ()
 leaveFunction = do
-  state@TransformMonad{nested=ns, functionScopes = fScopes} <- get
-  case (ns, fScopes) of
-    -- ([top], _) -> leaving the global scope
-    -- (_, []) -> leaving the top-most function
-    (_:rest, f:fs) ->
-      put state
-        { nested = rest
-        , functionScopes = fs
-        }
+  leaveScope
+  state@TransformMonad{functionScopes = fScopes} <- get
+  put state
+    { functionScopes = tail fScopes
+    }
 
 addFunctionReturn :: ReturnExpr -> TState ()
 addFunctionReturn fReturn = do
