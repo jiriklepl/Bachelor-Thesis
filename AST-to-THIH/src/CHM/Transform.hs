@@ -1,6 +1,8 @@
 {-# LANGUAGE TypeSynonymInstances, FlexibleInstances, FlexibleContexts #-}
 module CHM.Transform where
 
+import Control.Monad((>=>))
+
 import TypingHaskellInHaskell
 import Language.C.Data
 import Language.C.Syntax
@@ -24,12 +26,29 @@ typeInfer a =
       Nothing -> ["programEnvironment" :>: toScheme tError]  -- TODO
       Just env -> tiProgram env bis program
 
-collapse :: Program -> BindGroup
-collapse ((expls, impls) : rest) =
+collapseScope :: Program -> BindGroup
+collapseScope ((expls, impls) : rest) =
   let
-    (restExpls, restImpls) = collapse rest
+    (restExpls, restImpls) = collapseScope rest
   in (expls ++ restExpls, impls ++ restImpls)
-collapse [] = ([],[])
+collapseScope [] = ([],[])
+
+
+
+reassemble :: BindGroup -> BindGroup
+reassemble bindGroup@([(name,scheme,[([pat], Let (expls, impls) returnValue)])], []) = case expls of
+  (eName, eScheme, [([],expr)]) : rest ->
+    let
+      eScheme' = case (scheme, eScheme) of
+        (Forall a (b :=> (TAp _ r1)), Forall _ (_ :=> t2)) ->  -- TODO: this should happen before chmScheme, + we should pass the previous also it seems
+          Forall a (b :=> (t2 `fn` r1))
+      bindGroup' = reassemble ([("TODO_" ++ eName, eScheme', [([PVar eName], Let (rest, impls) returnValue)])], [])
+    in ([(name,scheme,[([pat], Let bindGroup' (Var ("TODO_" ++ eName) `Ap` expr))])], [])
+  _ -> bindGroup
+
+
+
+
 
 toConst :: Type -> Type
 toConst c@(TAp tConst a) = c
@@ -151,8 +170,8 @@ instance Transform CExtDecl where
 ap2 :: Expr -> Expr -> Expr -> Expr
 ap3 :: Expr -> Expr -> Expr -> Expr -> Expr
 
-ap2 f a b = Ap (Ap f a) b
-ap3 f a b c = Ap (Ap (Ap f a) b) c
+ap2 f a b = foldl Ap f [a, b]
+ap3 f a b c = foldl Ap f [a, b, c]
 
 transformExpr :: CExpr -> TState Expr
 transformExpr cExpr = let
@@ -376,7 +395,7 @@ instance Transform CHMFunDef where
       leaveCHMHead
       returns <- getFunctionReturns
       leaveFunction
-      return $ pure
+      return . pure $ reassemble
         ( [ ( name
             , scheme
             , [ ( [ PCon
@@ -384,7 +403,7 @@ instance Transform CHMFunDef where
                       (PVar <$> parIds)
                   ]
                 , Let
-                    (collapse transStmt)
+                    (collapseScope transStmt)
                     $ foldl -- TODO: here we can do warning if retType is not tVoid and there is nothing to actually return
                       (\ a b -> Var returnFunc `Ap` a `Ap` b)
                       (Const $ returnName :>: retScheme)
@@ -492,5 +511,5 @@ instance Transform CHMHead where
     return []
   transform (CHMHead types constraints a) = do
     transform (CHMHead types [] a)
-    foldl1 (>>) $ (\c -> transformConstraint c >>= chmAddClass) <$> constraints
+    foldl1 (>>) $ (transformConstraint >=> chmAddClass) <$> constraints
     return []
