@@ -46,8 +46,53 @@ reassemble bindGroup@([(name,scheme,[([pat], Let (expls, impls) returnValue)])],
     in ([(name,scheme,[([pat], Let bindGroup' (Var ("TODO_" ++ eName) `Ap` expr))])], [])
   _ -> bindGroup
 
+-- this goes through the structure and removes temporary types with generics
+class CHMSchemize a where
+  chmSchemize :: a -> TState a
 
+instance CHMSchemize Scheme where
+  chmSchemize (Forall [] ([] :=> t)) = chmScheme t
 
+instance CHMSchemize BindGroup where
+  chmSchemize (expls, impls) = do
+      expls' <- chmSchemize expls
+      impls' <- chmSchemize impls
+      return (expls', impls')
+
+instance CHMSchemize a => CHMSchemize [a] where
+  chmSchemize (x:xs) = do
+    x' <- chmSchemize x
+    xs' <- chmSchemize xs
+    return $ x' : xs'
+  chmSchemize [] = return []
+
+instance CHMSchemize Expl where
+  chmSchemize (name, scheme, alts) = do
+    scheme' <- chmSchemize scheme
+    alts' <- chmSchemize alts
+    return (name, scheme', alts')
+
+instance CHMSchemize Impl where
+  chmSchemize (name, alts) = (,) name <$> chmSchemize alts
+
+instance CHMSchemize Alt where
+  chmSchemize (pats, expr) = (,) pats <$> chmSchemize expr
+
+instance CHMSchemize Expr where
+  chmSchemize (Let bindGroup expr) = do
+    bindGroup' <- chmSchemize bindGroup
+    expr' <- chmSchemize expr
+    return $ Let bindGroup' expr'
+  chmSchemize (Const assump) = Const <$> chmSchemize assump
+  chmSchemize (Ap expr1 expr2) = do
+    expr1' <- chmSchemize expr1
+    expr2' <- chmSchemize expr2
+    return $ Ap expr1' expr2'
+  -- case for Var and Lit
+  chmSchemize expr = return expr
+
+instance CHMSchemize Assump where
+  chmSchemize (id :>: scheme) = (id :>:) <$> chmSchemize scheme
 
 
 toConst :: Type -> Type
