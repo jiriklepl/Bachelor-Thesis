@@ -1,24 +1,27 @@
 // CHM test source code
 
-char * (* b(int first, int* second))(){
-}
+struct hoplomoplo {
+	int hoplomember;
+} x;
 
-<a>
-a just_pass(a* first) {
-	int second;
-	second = first;
-	switch (first) {
-		case 10:
-		case 20:
-		case 30:
+struct hohooclass {
+	float hohoomember;
+};
+
+<a, b : Num <a> >
+void do_something(a first, struct hoplomoplo hohoo) {
+	a second = first;
+	b third = hohoo;
+	second = first = 5;
+	switch (second) {
+	case 0:
+		break;
+	case 5:
 		break;
 	}
-	first = first + second;
-	return first;
 }
 
-
-int main(void) {
-	just_pass(5, 10, 20);
-	return 0;
+int main() {
+	int a = x.hoplomember;
+	do_something(a, x);
 }
