@@ -358,11 +358,14 @@ toScheme t     = Forall [] ([] :=> t)
 -- Assump:	Assumptions
 -----------------------------------------------------------------------------
 
-data Assump = Id :>: Scheme deriving(Show)
+data Assump = Id :>: Scheme deriving(Show, Eq)
 
 instance Types Assump where
   apply s (i :>: sc) = i :>: (apply s sc)
   tv (i :>: sc)      = tv sc
+
+instance Ord Assump where
+  compare (id1 :>: _) (id2 :>: _) = compare id1 id2
 
 find                 :: MonadFail m => Id -> [Assump] -> m Scheme
 find i []             = fail ("unbound identifier: " ++ i)
