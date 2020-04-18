@@ -2,6 +2,7 @@
 module CHM.Transform where
 
 import Control.Monad((>=>))
+import qualified Data.Set as Set (toList)
 
 import TypingHaskellInHaskell
 import Language.C.Data
@@ -24,7 +25,7 @@ typeInfer a =
   in
     case mcs initialEnv of
       Nothing -> ["@programEnvironment" :>: toScheme tError]  -- TODO
-      Just env -> tiProgram env bis program
+      Just env -> tiProgram env (Set.toList bis) program
 
 collapseScope :: Program -> BindGroup
 collapseScope ((expls, impls) : rest) =
@@ -125,7 +126,8 @@ translateDeclSpecs (decl:decls) = case decl of
   CTypeSpec (CBoolType _) -> return tBool
   CTypeSpec (CComplexType _) -> return tComplex
   CTypeSpec (CInt128Type _) -> return tInt128
-  CTypeSpec (CSUType (CStruct CStructTag (Just (Ident sId _ _)) _ _ _) _) -> return $ TCon (Tycon sId Star)  -- TODO: same as TypeDef (just few rows below)
+  CTypeSpec (CSUType (CStruct CStructTag (Just (Ident sId _ _)) Nothing _ _) _) -> return $ TCon (Tycon sId Star)  -- TODO: same as TypeDef (just few rows below)
+  CTypeSpec (CSUType (CStruct CStructTag (Just (Ident sId _ _)) (Just cDecls) _ _) _) -> registerStructMembers sId cDecls >> return (TCon (Tycon sId Star))
   CTypeSpec (CSUType (CStruct CStructTag Nothing _ _ _) _ ) -> return tError  -- TODO
   CTypeSpec (CSUType (CStruct CUnionTag (Just (Ident sId _ _)) _ _ _) _) -> return $ TCon (Tycon sId Star)  -- TODO: same as TypeDef
   CTypeSpec (CSUType (CStruct CUnionTag Nothing _ _ _) _) -> return tError  -- TODO
@@ -204,6 +206,22 @@ extractParameters (decl:decls) = case decl of
       expandedType <- translateDerivedDecl pureType derived
       return $ ([(name, toScheme expandedType, [])], []) : others
 extractParameters [] = return []
+
+registerStructMembers :: Id -> [CDecl] -> TState ()
+registerStructMembers id ((CDecl specs declrs a):cDecls) =
+  let
+    registerFromSingleDecl sId derivedDecls = do
+      pureType <- translateDeclSpecs specs
+      transType <- translateDerivedDecl pureType derivedDecls
+      registerMember id sId transType
+  in case declrs of
+    (Just (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _), Nothing, Nothing):rest -> do
+      registerFromSingleDecl sId derivedDecls
+      registerStructMembers id (CDecl specs rest a : cDecls)
+    (Just (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _), Just _, Nothing):rest ->
+      registerStructMembers id (CDecl specs rest a : cDecls)  -- TODO: this is probably error (but still recognized by c++ as kosher)
+    [] -> registerStructMembers id cDecls
+registerStructMembers _ [] = return ()
 
 
 instance Transform CTranslUnit where

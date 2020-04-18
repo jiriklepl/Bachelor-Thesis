@@ -77,6 +77,7 @@ module CHM.TransformMonad
   , getTupleCon
   , getTuple
   , getMember
+  , registerMember
   , runTState
   ) where
 
@@ -111,9 +112,9 @@ data TransformMonad = TransformMonad
   , anonymousCounter :: Int
   , typeVariables :: [Set.Set Id]
   , variableClasses :: [[Pred]]
-  , createdClasses :: Set.Set Ident  -- memory of created member accessors
+  , createdClasses :: Set.Set Id  -- memory of created member accessors
   , memberClasses :: EnvTransformer
-  , builtIns :: [Assump]  -- all created symbols
+  , builtIns :: Set.Set Assump  -- all created symbols
   }
 
 type TState = State TransformMonad
@@ -376,7 +377,7 @@ initTransformMonad = TransformMonad
       abBFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (aTVar `fn` bTVar `fn` tBool))
       -- functions of the form '(a, b) -> Bool'
       t2abBFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (tupledTypes [aTVar, bTVar] `fn` tBool))
-    in
+    in Set.fromList
       [ addOpFunc :>: abaFuncWithClasses [IsIn "Add" (pair aTVar bTVar)]
       , subOpFunc :>: abaFuncWithClasses [IsIn "Sub" (pair aTVar bTVar)]
       , mulOpFunc :>: abaFuncWithClasses [IsIn "Mul" (pair aTVar bTVar)]
@@ -631,7 +632,7 @@ getTuple n = do
     put state
       { tuples = n `Set.insert` ts
       , builtIns =
-        (translate :>: getTupleCon n) : bIs
+        (translate :>: getTupleCon n) `Set.insert` bIs
       }
     return translate
   where translate = "@make_tuple" ++ show n
@@ -639,31 +640,45 @@ getTuple n = do
 -- getMember creates a member accessor
 -- (if it doesn't exist, and its "@Has:X" class)
 -- and returns its id
+
+memberClassName :: Id -> Id
+memberClassName id = "@Has:" ++ id
+
+memberGetterName :: Id -> Id
+memberGetterName id = ".get:" ++ id
+
 getMember :: Ident -> TState Id
-getMember id@(Ident sId _ _) =
+getMember id@(Ident sId _ _) = return $ memberGetterName sId
+
+-- registers a member getter for the given struct and its member
+-- expressed via their ids respectively,
+-- creates the member's getter class if it doesn't exist
+registerMember :: Id -> Id -> Type -> TState ()
+registerMember sId mId t =
   let
-    translateId = ".get:" ++ sId
-    translateClass = "@Has:" ++ sId
-    sVar = Tyvar "s" Star
-    mVar = Tyvar "m" Star
+    sVar = Tyvar "structVar" Star
     sTVar = TVar sVar
-    mTVar = TVar mVar
+    mClassName = memberClassName mId
+    sCon = TCon (Tycon sId Star)
   in do
     state@TransformMonad{createdClasses=cs,builtIns=bIs,memberClasses=mClasses} <- get
-    if id `Set.member` cs then
-      return translateId
-    else do
+    if mId `Set.member` cs then
       put state
         { memberClasses = mClasses
-            <:> addClass translateClass []
-        , builtIns =
-          ( translateId :>:
-            quantify [sVar, mVar]
-            ([IsIn translateClass sTVar] :=> (sTVar `fn` mTVar))
-          ): bIs
-        , createdClasses = id `Set.insert` cs
+            <:> addInst [] (IsIn mClassName sCon)
         }
-      return translateId
+    else
+      put state
+        { memberClasses = mClasses
+            <:> addClass mClassName []
+            <:> addInst [] (IsIn mClassName sCon)
+        , builtIns =
+          ( memberGetterName mId :>:
+            quantify [sVar]
+            ([IsIn mClassName sTVar] :=> (sTVar `fn` t))
+          ) `Set.insert` bIs
+        , createdClasses = mId `Set.insert` cs
+        }
 
 runTState :: TState a -> (a,TransformMonad)
 runTState a = runState a initTransformMonad
