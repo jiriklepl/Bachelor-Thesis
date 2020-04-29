@@ -51,11 +51,14 @@ data Kind  = Star | Kfun Kind Kind
 -- Type:		Types
 -----------------------------------------------------------------------------
 
-data Type  = TVar Tyvar | TCon Tycon | TAp  Type Type | TGen Int
+data Type  = TVar Tyvar | TCon Tycon | TAp Type Type | TGen Int
              deriving (Eq, Show)
 
 data Tyvar = Tyvar Id Kind
              deriving (Eq, Show)
+
+instance Ord Tyvar where
+  compare (Tyvar id1 _) (Tyvar id2 _) = compare id1 id2
 
 data Tycon = Tycon Id Kind
              deriving (Eq, Show)

@@ -2196,9 +2196,10 @@ chm_header
   | '<' newtype_list ':' chm_constraint_list '>'
     {% withNodeInfo $2 $ CHMHead (reverse $2) (reverse $4) }
 
-  | '<' ':' chm_constraint_list '>'
-    {% enterScope >> (withNodeInfo $3 $ CHMHead [] (reverse $3)) }
+  | '<' just_enterScope ':' chm_constraint_list '>'
+    {% withNodeInfo $4 $ CHMHead [] (reverse $4) }
 
+just_enterScope : {- empty -} {% enterScope }
 
 chm_param_list :: { CHMParams }
 chm_param_list
@@ -2217,9 +2218,9 @@ chm_constraint_list
 chm_constraint :: { CHMConstr }
 chm_constraint
   : ident '<' chm_type_list '>'
-    {% withNodeInfo $1 $ CHMClassConstr $1 (reverse $3)  }
-  | chm_type '~' chm_type
-    {% withNodeInfo $1 $ CHMUnifyConstr $1 $3  }
+    {% withNodeInfo $1 $ CHMClassConstr $1 (reverse $3) }
+  | ident '~' chm_type
+    {% addTypedef $1 >> (withNodeInfo $1 $ CHMUnifyConstr $1 $3) }
 
 chm_type_list :: { Reversed [CHMT] }
   : chm_type { singleton $1 }

@@ -613,8 +613,8 @@ instance Pretty CHMConstr where
         identP ident <>
         pretty (CHMParams types a)
 
-    pretty (CHMUnifyConstr type_l type_r _) =
-        pretty type_l <+>
+    pretty (CHMUnifyConstr ident type_r _) =
+        identP ident <+>
         char '~' <+>
         pretty type_r
 

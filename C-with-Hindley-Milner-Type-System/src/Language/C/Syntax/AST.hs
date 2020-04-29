@@ -895,7 +895,7 @@ data CHMConstraint a
     [CHMType a]               -- type parameters
     a
   | CHMUnifyConstr
-    (CHMType a)               -- left side of the unification
+    Ident                     -- left side of the unification, has to be primitive
     (CHMType a)               -- right side of the unification
     a
     deriving (Show, Data,Typeable, Generic, Generic1 {-! ,CNode ,Functor ,Annotated !-})
@@ -1658,11 +1658,11 @@ instance Annotated CHMConstraint where
         annotation (CHMClassConstr _ _ n) = n
         annotation (CHMUnifyConstr _ _ n) = n
         amap f (CHMClassConstr a1 a2 a3) = CHMClassConstr a1 (amap f `map` a2) (f a3)
-        amap f (CHMUnifyConstr a1 a2 a3) = CHMUnifyConstr (amap f a1) (amap f a2)  (f a3)
+        amap f (CHMUnifyConstr a1 a2 a3) = CHMUnifyConstr a1 (amap f a2)  (f a3)
 
 instance Functor CHMConstraint where
         fmap f (CHMClassConstr a1 a2 a3) = CHMClassConstr a1 (fmap f `map` a2) (f a3)
-        fmap f (CHMUnifyConstr a1 a2 a3) = CHMUnifyConstr (fmap f a1) (fmap f a2)  (f a3)
+        fmap f (CHMUnifyConstr a1 a2 a3) = CHMUnifyConstr a1 (fmap f a2)  (f a3)
 
 instance CNode t1 => CNode (CHMConstraint t1) where
         nodeInfo (CHMClassConstr _ _ n) = nodeInfo n
