@@ -83,6 +83,8 @@ module CHM.TransformMonad
   , registerMember
   , registerCHMMember
   , registerStruct
+  , registerClass
+  , registerClassDeclaration
   , runTState
   ) where
 
@@ -119,6 +121,7 @@ data TransformMonad = TransformMonad
   , lastScope :: Int
   , registeredStructs :: Set.Set Id
   , anonymousCounter :: Int
+  , userClasses :: Map.Map Id [Assump]
   , typeVariables :: [[Tyvar]]
   , typeAliases :: [Map.Map Id Type]  -- types that are actually aliases in chm heads
   , variableClasses :: [[Pred]]  -- class constraints over variables in chm heads
@@ -317,6 +320,7 @@ initTransformMonad = TransformMonad
   , switchScopes = []
   , functionScopes = []
   , anonymousCounter = 0
+  , userClasses = Map.empty
   , typeVariables = []
   , typeAliases = []
   , variableClasses = []
@@ -777,6 +781,49 @@ registerStruct id = do
   else do
     put state{registeredStructs=id `Set.insert` rSs}
     return True
+
+-- makes a new entry in the class environment and in the transform monad
+registerClass :: Id -> TState Bool
+registerClass id = do
+  state@TransformMonad
+    { userClasses = uCs
+    , typeVariables = tVs
+    , variableClasses = vCs
+    , memberClasses = mCs
+    } <- get
+  if id `Map.member` uCs then
+    -- there is no new class entry as it would make an collision
+    return False
+  else do
+    let
+      tVars = head tVs
+      count = length tVars
+      classType =
+        if count == 1 then
+          TVar $ head tVars
+        else
+          foldl TAp (getTupleOp count) (TVar <$> tVars)
+      superClasses =
+        [ if t /= classType
+          then error "invalid superclass"  -- super-class has to have the same parameter(s)
+          else name
+        | IsIn name t <- head vCs
+        ]
+    put state
+      { userClasses = Map.insert id [] uCs  -- we add a new entry for the class
+      , variableClasses = [IsIn id classType] : tail vCs  -- we replace all constraints with the class
+      , memberClasses = mCs
+          <:> addClass id superClasses  -- we add an entry to the class environment
+      }
+    -- a class entry was actually created
+    return True
+
+registerClassDeclaration :: Id -> Assump -> TState ()
+registerClassDeclaration id assump = do
+  state@TransformMonad{userClasses=uCs} <- get
+  put state
+    { userClasses = Map.adjust (assump:) id uCs
+    }
 
 runTState :: TState a -> (a,TransformMonad)
 runTState a = runState a initTransformMonad

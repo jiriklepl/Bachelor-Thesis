@@ -255,7 +255,7 @@ instance Transform CExtDecl where
   transform  (CFDefExt a)   = transform a
   transform  (CHMFDefExt a) = transform a
   transform  (CHMSDefExt a) = transform a
-  -- TODO: transform  (CHMCDefExt a) = transform a
+  transform  (CHMCDefExt a) = transform a
   -- TODO: transform  (CHMIDefExt a) = transform a
   transform  (CAsmExt  a _) = transform a
 
@@ -640,3 +640,42 @@ instance Transform CHMStructDef where
     registerCHMStructMembers sId cDecls
     leaveCHMHead
     return []
+
+-- registers a new class and declares its content,
+-- adds an entry for each declaration to the transform monad
+-- (as we have to remember them when making instances of the class)
+-- TODO: this looks too obfuscated (more so than how haskell usually looks)
+declareClassContents :: Id -> [CExtDecl] -> TState [Expl]
+declareClassContents id cExtDecls = do
+  registered <- registerClass id
+  let
+    classDeclare (CDeclExt cDecl) = do
+      let
+        translateDeclaration ([(name, Forall [] ([] :=> t), [])], []) = do
+          scheme <- chmScheme t
+          registerClassDeclaration id (name :>: scheme)
+          return (name, scheme, [])
+        translateDeclaration _ = return $ error "only pure declarations allowed here"
+        translateDeclarations (decl:rest) = do
+          transDecl <- translateDeclaration decl
+          transRest <- translateDeclarations rest
+          return $ transDecl : transRest
+        translateDeclarations [] = return []
+      transform cDecl >>= translateDeclarations
+    classDeclare _ = return $ error "only declarations allowed in class declarations"
+    classDeclares (first:others) = do
+      transFirst <- classDeclare first
+      transRest <- classDeclares others
+      return $ transFirst ++ transRest
+    classDeclares [] = return []
+  if registered then
+    classDeclares cExtDecls
+  else return $ error "class already defined"
+
+instance Transform CHMCDef where
+  transform (CHMCDef (Ident cId _ _) chmHead cExtDecls _) = do
+    enterCHMHead
+    transHead <- transform chmHead
+    expls <- declareClassContents cId cExtDecls
+    leaveCHMHead
+    return [(expls, [])]
