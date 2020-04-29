@@ -1,11 +1,12 @@
 {-# LANGUAGE FlexibleInstances, FlexibleContexts #-}
 module CHM.Transform where
 
-import Control.Monad((>=>))
-import qualified Data.Set as Set (toList)
+import Control.Monad((>=>), when)
+import qualified Data.Set as Set
 
 import TypingHaskellInHaskell
 import Language.C.Data
+import Debug.Trace
 import Language.C.Syntax
 import Language.C.Data.Ident (Ident(..))
 
@@ -126,7 +127,7 @@ translateDeclSpecs (decl:decls) = case decl of
   CTypeSpec (CBoolType _) -> return tBool
   CTypeSpec (CComplexType _) -> return tComplex
   CTypeSpec (CInt128Type _) -> return tInt128
-  CTypeSpec (CSUType (CStruct CStructTag (Just (Ident sId _ _)) Nothing _ _) _) -> return $ TCon (Tycon sId Star)  -- TODO: same as TypeDef (just few rows below)
+  CTypeSpec (CSUType (CStruct CStructTag (Just (Ident sId _ _)) Nothing _ _) _) -> return $ TCon (Tycon sId (Kfun Star Star))  -- TODO: same as TypeDef (just few rows below)
   CTypeSpec (CSUType (CStruct CStructTag (Just (Ident sId _ _)) (Just cDecls) _ _) _) -> registerStructMembers sId cDecls >> return (TCon (Tycon sId Star))
   CTypeSpec (CSUType (CStruct CStructTag Nothing _ _ _) _ ) -> return tError  -- TODO
   CTypeSpec (CSUType (CStruct CUnionTag (Just (Ident sId _ _)) _ _ _) _) -> return $ TCon (Tycon sId Star)  -- TODO: same as TypeDef
@@ -208,20 +209,38 @@ extractParameters (decl:decls) = case decl of
 extractParameters [] = return []
 
 registerStructMembers :: Id -> [CDecl] -> TState ()
-registerStructMembers id ((CDecl specs declrs a):cDecls) =
-  let
-    registerFromSingleDecl sId derivedDecls = do
-      pureType <- translateDeclSpecs specs
-      transType <- translateDerivedDecl pureType derivedDecls
-      registerMember id sId transType
-  in case declrs of
-    (Just (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _), Nothing, Nothing):rest -> do
-      registerFromSingleDecl sId derivedDecls
-      registerStructMembers id (CDecl specs rest a : cDecls)
-    (Just (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _), Just _, Nothing):rest ->
-      registerStructMembers id (CDecl specs rest a : cDecls)  -- TODO: this is probably error (but still recognized by c++ as kosher)
-    [] -> registerStructMembers id cDecls
 registerStructMembers _ [] = return ()
+registerStructMembers id cDecls = do
+  registered <- registerStruct id
+  let
+    registerSingleCDecl (CDecl specs declrs a) =
+      case declrs of
+        (Just (CDeclr (Just (Ident mId _ _)) derivedDecls _ _ _), Nothing, Nothing):rest -> do
+          pureType <- translateDeclSpecs specs
+          transType <- translateDerivedDecl pureType derivedDecls
+          registerMember id mId transType
+          registerSingleCDecl (CDecl specs rest a)
+        (Just (CDeclr (Just (Ident mId _ _)) derivedDecls _ _ _), Just _, Nothing):rest ->
+          registerSingleCDecl (CDecl specs rest a)  -- TODO: this is probably error (but still recognized by c++ as kosher)
+        [] -> return ()
+  when registered $ foldl1 (>>) (registerSingleCDecl <$> cDecls)
+
+registerCHMStructMembers :: Id -> [CDecl] -> TState ()
+registerCHMStructMembers _ [] = return ()
+registerCHMStructMembers id cDecls = do
+  registered <- registerStruct id
+  let
+    registerSingleCDecl (CDecl specs declrs a) =
+      case declrs of
+        (Just (CDeclr (Just (Ident mId _ _)) derivedDecls _ _ _), Nothing, Nothing):rest -> do
+          pureType <- translateDeclSpecs specs
+          transType <- translateDerivedDecl pureType derivedDecls
+          registerCHMMember id mId transType
+          registerSingleCDecl (CDecl specs rest a)
+        (Just (CDeclr (Just (Ident mId _ _)) derivedDecls _ _ _), Just _, Nothing):rest ->
+          registerSingleCDecl (CDecl specs rest a)  -- TODO: this is probably error (but still recognized by c++ as kosher)
+        _ -> return ()
+  when registered $ foldl1 (>>) (registerSingleCDecl <$> cDecls)
 
 
 instance Transform CTranslUnit where
@@ -235,7 +254,7 @@ instance Transform CExtDecl where
   transform  (CDeclExt a)   = transform a
   transform  (CFDefExt a)   = transform a
   transform  (CHMFDefExt a) = transform a
-  -- TODO: transform  (CHMSDefExt a) = transform a
+  transform  (CHMSDefExt a) = transform a
   -- TODO: transform  (CHMCDefExt a) = transform a
   -- TODO: transform  (CHMIDefExt a) = transform a
   transform  (CAsmExt  a _) = transform a
@@ -365,23 +384,23 @@ instance Transform CFunDef where  -- TODO: make this and CHMFunDef use same bits
     transform (CHMFunDef (CHMHead [] [] a) funDef a)
 
 instance Transform CDecl where  -- TODO
-  transform (CDecl specs declrs a) = case declrs of  -- TODO
-    (Just (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _), Nothing, Nothing):rest -> do
-      storeName sId
-      name <- scopedName sId
-      pureType <- translateDeclSpecs specs
-      transType <- translateDerivedDecl pureType derivedDecls
-      restTrans <- transform (CDecl specs rest a)
-      return $ ([(name, toScheme transType, [])], []) : restTrans
-    (Just (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _), Just (CInitExpr cExpr _), Nothing):rest -> do
-      storeName sId
-      name <- scopedName sId
-      pureType <- translateDeclSpecs specs
-      transType <- translateDerivedDecl pureType derivedDecls
-      transExpr <- transformExpr cExpr
-      restTrans <- transform (CDecl specs rest a)
-      return $ ([(name, toScheme transType, [([],transExpr)])], []) : restTrans
-    [] -> return []
+  transform (CDecl specs declrs a) = do
+    pureType <- translateDeclSpecs specs
+    case declrs of  -- TODO
+      (Just (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _), Nothing, Nothing):rest -> do
+        storeName sId
+        name <- scopedName sId
+        transType <- translateDerivedDecl pureType derivedDecls
+        restTrans <- transform (CDecl specs rest a)
+        return $ ([(name, toScheme transType, [])], []) : restTrans
+      (Just (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _), Just (CInitExpr cExpr _), Nothing):rest -> do
+        storeName sId
+        name <- scopedName sId
+        transType <- translateDerivedDecl pureType derivedDecls
+        transExpr <- transformExpr cExpr
+        restTrans <- transform (CDecl specs rest a)
+        return $ ([(name, toScheme transType, [([],transExpr)])], []) : restTrans
+      [] -> return []
   transform (CStaticAssert cExpr cStrLit _) = return []
 
 instance Transform CStrLit where
@@ -412,7 +431,7 @@ instance Transform CHMFunDef where
       typeSignatures = case head derivedDecls of
         -- old-style
         CFunDeclr (Left idents) _ _ ->
-          return $ (\(Ident parId _ _) -> parId) <$> idents  -- TODO
+          return [parId | Ident parId _ _ <- idents]  -- TODO
         -- not var-args
         CFunDeclr (Right (parDecls, False)) _ _ ->
           extractPars parDecls
@@ -535,28 +554,89 @@ instance Transform CBlockItem where
   transform (CBlockDecl cDecl) = transform cDecl
   transform (CNestedFunDef _) = return []  -- TODO: gnu thing, so maybe not-todo
 
-transformConstraint (CHMClassConstr (Ident id _ _) types _) =
+fixKinds :: Type -> TState Type
+fixKinds t = do
+  let
+    getAp (TAp t1 t2) =
+      let
+        (id, kind) = getAp t1
+      in (id, Kfun Star kind)
+    getAp (TVar (Tyvar id _)) = (id, Star)
+    getAp _ = ([], Star)
+    ap = getAp t
+  state@TransformMonad
+    { typeVariables = tVs
+    } <- get
+  let
+    fix ts ([],_) = ts
+    fix (first@(Tyvar id1 kind1) : others) new@(id2, kind2)
+      | id1 == id2 = Tyvar id1 kind2 : others -- TODO
+      | otherwise = first : fix others new
+    fix [] _ = []
+  put state
+    { typeVariables = fix (head tVs) ap : tail tVs
+    }
+  let
+    putAp t1 ([], _) = t1
+    putAp (TAp t1 t2) new = TAp (putAp t1 new) t2
+    putAp (TVar (Tyvar _ _)) (id, kind) = TVar $ Tyvar id kind
+  return $ putAp t ap
+
+transformConstraint :: CHMConstr -> TState (Maybe Pred)
+transformConstraint constr = do
   let
     translateType (CHMCType declSpecs _) = translateDeclSpecs declSpecs
+    translateType (CHMParType cType (CHMParams cTypes _) _) = do
+      transT <- translateType cType
+      transTs <- translateTypes cTypes
+      let
+        apT = foldl TAp transT transTs
+      fixKinds apT
     translateTypes (t:ts) = do
       transT <- translateType t
       transTs <- translateTypes ts
       return $ transT : transTs
     translateTypes [] = return []
-    count = length types
-  in do
-    transTypes <- translateTypes types
-    if count == 1
-      then return $ IsIn id $ head transTypes
-      else return $ IsIn id $ foldl TAp (getTupleOp count) transTypes
+  case constr of
+    (CHMClassConstr (Ident id _ _) cTypes _) -> do
+      let count = length cTypes
+      transTypes <- translateTypes cTypes
+      if count == 1 then
+        return . Just . IsIn id $ head transTypes
+      else
+        return . Just . IsIn id $ foldl TAp (getTupleOp count) transTypes
+    (CHMUnifyConstr (Ident id _ _) cType _) -> do
+      transType <- translateType cType
+      storeName id
+      scopedName id >>= flip chmAddAlias transType
+      return Nothing
+
+translateConstraints :: [CHMConstr] -> TState ()
+translateConstraints (c:cs) = do
+  transC <- transformConstraint c
+  case transC of
+    Just x -> chmAddClass x
+    _ -> return ()
+  transRest <- translateConstraints cs
+  return ()
+translateConstraints [] = return ()
 
 instance Transform CHMHead where
   transform (CHMHead [] [] _) = return []
   transform (CHMHead types [] _) = do
-    foldl1 (>>) $ storeName . (\(Ident id _ _) -> id) <$> types
-    foldl1 (>>) $ (\(Ident id _ _) -> scopedName id >>= chmAddVariable) <$> types
+    foldl1 (>>) [storeName id | Ident id _ _ <- types]
+    foldl1 (>>) $ (\(Ident id _ _) -> flip Tyvar Star <$> scopedName id >>= chmAddVariable) <$> types
     return []
   transform (CHMHead types constraints a) = do
     transform (CHMHead types [] a)
-    foldl1 (>>) $ (transformConstraint >=> chmAddClass) <$> constraints
+    translateConstraints constraints
+    return []
+
+instance Transform CHMStructDef where
+  -- TODO
+  transform (CHMStructDef chmHead (CStruct CStructTag (Just (Ident sId _ _)) (Just cDecls) _ _) _) = do
+    enterCHMHead
+    transHead <- transform chmHead
+    registerCHMStructMembers sId cDecls
+    leaveCHMHead
     return []

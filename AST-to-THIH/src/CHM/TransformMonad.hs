@@ -1,6 +1,7 @@
 module CHM.TransformMonad
   ( TransformMonad(..)
   , TState
+  , get, put
   , tPointer
   , tConst
   , tError
@@ -58,8 +59,9 @@ module CHM.TransformMonad
   , scopedName
   , getNextAnon
   , enterCHMHead
-  , chmAddClass
   , chmAddVariable
+  , chmAddAlias
+  , chmAddClass
   , leaveCHMHead
   , chmScheme
   , renameScoped
@@ -73,16 +75,22 @@ module CHM.TransformMonad
   , leaveFunction
   , addFunctionReturn
   , getFunctionReturns
+  , takeNKind
   , getTupleOp
   , getTupleCon
   , getTuple
   , getMember
   , registerMember
+  , registerCHMMember
+  , registerStruct
   , runTState
   ) where
 
 import Control.Monad.State
+import Debug.Trace
+import Data.List
 import qualified Data.Set as Set
+import qualified Data.Map as Map
 
 import TypingHaskellInHaskell
 import Language.C.Data
@@ -109,11 +117,13 @@ data TransformMonad = TransformMonad
   , switchScopes :: [Int]
   , functionScopes :: [(Id, [ReturnExpr])]
   , lastScope :: Int
+  , registeredStructs :: Set.Set Id
   , anonymousCounter :: Int
-  , typeVariables :: [Set.Set Id]
-  , variableClasses :: [[Pred]]
+  , typeVariables :: [[Tyvar]]
+  , typeAliases :: [Map.Map Id Type]  -- types that are actually aliases in chm heads
+  , variableClasses :: [[Pred]]  -- class constraints over variables in chm heads
   , createdClasses :: Set.Set Id  -- memory of created member accessors
-  , memberClasses :: EnvTransformer
+  , memberClasses :: EnvTransformer  -- all classes and their instances
   , builtIns :: Set.Set Assump  -- all created symbols
   }
 
@@ -303,11 +313,13 @@ initTransformMonad = TransformMonad
   , createdClasses = Set.empty
   , nested = [initScope "global" 0]
   , lastScope = 0
+  , registeredStructs = Set.empty
   , switchScopes = []
   , functionScopes = []
   , anonymousCounter = 0
-  , typeVariables = [Set.empty]
-  , variableClasses = [[]]
+  , typeVariables = []
+  , typeAliases = []
+  , variableClasses = []
   , memberClasses =
     let
       aVar = Tyvar "a" Star
@@ -328,7 +340,7 @@ initTransformMonad = TransformMonad
     <:> addClass "LogOp" []
     -- all built-in instances (work in -- TODO)
     <:> addInst [] (IsIn "Num" tInt)
-    <:> addInst [] (IsIn "Add" (pair tInt tInt))
+    <:> addInst [] (IsIn "Add" tInt)
     <:> addInst [] (IsIn "Add" (pair tFloat tFloat))
     <:> addInst [] (IsIn "Add" (pair tDouble tDouble))
     <:> addInst [] (IsIn "Add" (pair (pointer aTVar) (pointer bTVar)))
@@ -336,7 +348,7 @@ initTransformMonad = TransformMonad
     <:> addInst [] (IsIn "Sub" (pair tFloat tFloat))
     <:> addInst [] (IsIn "Sub" (pair tDouble tDouble))
     <:> addInst [] (IsIn "Sub" (pair (pointer aTVar) (pointer bTVar)))
-    <:> addInst [] (IsIn "Mul" (pair tInt tInt))
+    <:> addInst [] (IsIn "Mul" tInt)
     <:> addInst [] (IsIn "Mul" (pair tFloat tFloat))
     <:> addInst [] (IsIn "Mul" (pair tDouble tDouble))
     <:> addInst [] (IsIn "Div" (pair tInt tInt))
@@ -378,9 +390,9 @@ initTransformMonad = TransformMonad
       -- functions of the form '(a, b) -> Bool'
       t2abBFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (tupledTypes [aTVar, bTVar] `fn` tBool))
     in Set.fromList
-      [ addOpFunc :>: abaFuncWithClasses [IsIn "Add" (pair aTVar bTVar)]
+      [ addOpFunc :>: aaaFuncWithClasses [IsIn "Add" aTVar]  -- TODO: all arithmetics
       , subOpFunc :>: abaFuncWithClasses [IsIn "Sub" (pair aTVar bTVar)]
-      , mulOpFunc :>: abaFuncWithClasses [IsIn "Mul" (pair aTVar bTVar)]
+      , mulOpFunc :>: aaaFuncWithClasses [IsIn "Mul" aTVar]
       , divOpFunc :>: abaFuncWithClasses [IsIn "Div" (pair aTVar bTVar)]
       , modOpFunc :>: abaFuncWithClasses [IsIn "Mod" (pair aTVar bTVar)]
       , assOpFunc :>: aaaFuncWithClasses []
@@ -422,15 +434,15 @@ getFunctionName = do
 findName :: Id -> TState (Maybe Scope)
 findName id = do
   TransformMonad{nested = ns} <- get
-  let {
-    recursiveSearch i [] = Nothing;
+  let
+    recursiveSearch i [] = Nothing
     recursiveSearch i (scope@Scope{scopeVars = names} : scopes) =
       if i `Set.member` names
       then
         Just scope
       else
         recursiveSearch i scopes
-  } in return (recursiveSearch id ns)
+  return (recursiveSearch id ns)
 
 storeName :: Id -> TState ()
 storeName id = do
@@ -456,79 +468,114 @@ getNextAnon = do
 
 enterCHMHead :: TState ()
 enterCHMHead = do
-  state@TransformMonad{variableClasses=vs,typeVariables=ts} <- get
+  state@TransformMonad
+    { variableClasses = vCs
+    , typeVariables = tVs
+    , typeAliases = tAs
+    } <- get
   put state
-    { variableClasses = [] : vs
-    , typeVariables = Set.empty : ts
+    { variableClasses = [] : vCs
+    , typeVariables = [] : tVs
+    , typeAliases = Map.empty : tAs
     }
 
-chmAddVariable :: Id -> TState ()
-chmAddVariable id = do
-  state@TransformMonad{typeVariables=ts} <- get
-  case ts of
-    t:rest -> put state
-      { typeVariables = (id `Set.insert` t) : rest
+chmAddVariable :: Tyvar -> TState ()
+chmAddVariable tyvar = do
+  state@TransformMonad{typeVariables = tVs} <- get
+  case tVs of
+    ts:rest -> put state{typeVariables = (tyvar : ts) : rest}
+    _ -> return . error $ "not in chm head block"
+
+chmAddAlias :: Id -> Type -> TState ()
+chmAddAlias id t = do
+  state@TransformMonad{typeAliases = tAs} <- get
+  case tAs of
+    tas:restA -> put state
+      { typeAliases = Map.insert id t tas : restA
       }
-    _ -> return . error $ "not in chm block"
+    _ -> return . error $ "not in chm head block"
 
 chmAddClass :: Pred -> TState ()
 chmAddClass p = do
-  state@TransformMonad{variableClasses=cs} <- get
+  state@TransformMonad{variableClasses = cs} <- get
   case cs of
-    c:rest -> put state
-      { variableClasses = (p : c) : rest
-      }
-    _ -> return . error $ "not in chm block"
+    c:rest -> put state{variableClasses = (p : c) : rest}
+    _ -> return . error $ "not in chm head block"
 
 leaveCHMHead :: TState ()
 leaveCHMHead = do
-  state@TransformMonad{variableClasses=vs,typeVariables=ts} <- get
+  state@TransformMonad
+    { variableClasses = vCs
+    , typeVariables = tVs
+    , typeAliases = tAs
+    } <- get
   put state
-    { variableClasses = tail vs
-    , typeVariables = tail ts
+    { variableClasses = tail vCs
+    , typeVariables = tail tVs
+    , typeAliases = tail tAs
     }
 
 -- filterTypes takes a 'type' and a set of 'unfiltered' and return 'filtered'
 -- which contains the types from the 'unfiltered' set that contribute
 -- towards the 'type'
-filterTypes :: Type -> Set.Set Id -> ([Tyvar], Set.Set Id)
-filterTypes t tSet
-  | tSet == Set.empty = ([], Set.empty)
+filterTypes :: Type -> (Set.Set Tyvar, Set.Set Id) -> (Set.Set Tyvar, Set.Set Id)
+filterTypes t accumulator@(tSet, idSet)
+  | idSet == Set.empty = accumulator
   | otherwise = case t of
-    TAp t1 t2 ->
-      let
-        (ts, tSet') = filterTypes t1 tSet
-        (tsFinal, tSetFinal) = filterTypes t2 tSet'
-      in
-        (ts ++ tsFinal, tSetFinal)
-    TVar tv@(Tyvar id _) -> if id `Set.member` tSet
-      then ([tv], id `Set.delete` tSet)
-      else ([], tSet)
-    _ -> ([], tSet)
+    TAp t1 t2 -> filterTypes t2 . filterTypes t1 $ accumulator
+    TVar tv@(Tyvar id _) -> if id `Set.member` idSet
+      then (tv `Set.insert` tSet, id `Set.delete` idSet)
+      else accumulator
+    _ -> accumulator
 
-depends :: Type -> [Tyvar] -> Bool
-depends (TVar t@(Tyvar id _)) ts = t `elem` ts
+depends :: Type -> Set.Set Tyvar -> Bool
+depends (TVar t@(Tyvar id _)) ts = t `Set.member` ts
 depends (TAp t1 t2) ts
   =  depends t2 ts
   || depends t1 ts
 depends _ ts = False
 
-filterClasses :: [Tyvar] -> [Pred] -> [Pred]
-filterClasses ts (pred@(IsIn id t):preds) = if depends t ts
-  then pred : filterClasses ts preds
-  else filterClasses ts preds
-filterClasses _ [] = []
+addTypesFromType :: Type -> Set.Set Tyvar -> Set.Set Tyvar
+addTypesFromType (TVar t@(Tyvar id _)) ts = t `Set.insert` ts
+addTypesFromType (TAp t1 t2) ts =
+  addTypesFromType t1 . addTypesFromType t2 $ ts
+addTypesFromType _ ts = ts
+
+filterClasses :: (Set.Set Tyvar, [Pred], [Pred]) -> (Set.Set Tyvar, [Pred], [Pred])
+filterClasses acc@(_, [], _) = acc
+filterClasses acc@(tVars, preds, outPreds) =
+  case partition (\(IsIn _ t) -> depends t tVars) preds of
+    ([], _) -> acc
+    (preds', preds'') ->
+      let tVars' = foldr ($) tVars [addTypesFromType t | IsIn _ t <- preds']
+      in filterClasses (tVars', preds'', preds' ++ outPreds)
+
+replaceAliases :: Type -> TState Type
+replaceAliases t@(TVar (Tyvar id kind)) = do
+  TransformMonad{typeAliases = tAs} <- get
+  case id `Map.lookup` head tAs of
+    Just t' -> return t'
+    Nothing -> return t
+replaceAliases (TAp t1 t2) = do
+  t1' <- replaceAliases t1
+  t2' <- replaceAliases t2
+  return $ TAp t1' t2'
+-- for TGen(?) and mainly TCon
+replaceAliases t = return t
+
 
 chmScheme :: Type -> TState Scheme
 chmScheme t = do
   state@TransformMonad
-    { typeVariables = tvs
-    , variableClasses = vcs
+    { typeVariables = tVs
+    , variableClasses = vCs
     } <- get
-  let {
-    (types, _) = filterTypes t $ head tvs;
-    classes = filterClasses types $ head vcs
-  } in return $ quantify types $ classes :=> t
+  t' <- replaceAliases t
+  let
+    tVars = Set.fromList [id | Tyvar id _ <- head tVs]
+    (types, _) = filterTypes t' (Set.empty, tVars)
+    (types', _, classes) = filterClasses (types, head vCs, [])
+  return $ quantify (Set.toList types') $ classes :=> t'
 
 enterScope :: Id -> TState ()
 enterScope id = do
@@ -602,12 +649,15 @@ getFunctionReturns = do
   TransformMonad{functionScopes = fScopes} <- get
   return . snd . head $ fScopes
 
+takeNKind :: Int -> Kind
+takeNKind n = last $ take (n + 1) $ iterate (Kfun Star) Star
+
 getTupleOp :: Int -> Type
 getTupleOp n =
   TCon
     ( Tycon
-      ("(" ++ replicate (n - 1) ',' ++ ")" ++ show n)
-      (last $ take (n + 1) $ iterate (Kfun Star) Star)
+        ("(" ++ replicate (n - 1) ',' ++ ")" ++ show n)
+        (takeNKind n)
     )
 
 tupledTypes :: [Type] -> Type
@@ -625,7 +675,7 @@ getTupleCon n =
 
 getTuple :: Int -> TState Id
 getTuple n = do
-  state@TransformMonad{tuples=ts, builtIns=bIs} <- get
+  state@TransformMonad{tuples = ts, builtIns = bIs} <- get
   if n `Set.member` ts then
     return translate
   else do
@@ -638,12 +688,14 @@ getTuple n = do
   where translate = "@make_tuple" ++ show n
 
 -- getMember creates a member accessor
--- (if it doesn't exist, and its "@Has:X" class)
+-- (if it doesn't exist, and its "@Has_X" class)
 -- and returns its id
 
 memberClassName :: Id -> Id
-memberClassName id = "@Has:" ++ id
+memberClassName id = "Has_" ++ id
 
+-- this has to be named so that it cannot collide with
+-- other functions
 memberGetterName :: Id -> Id
 memberGetterName id = ".get:" ++ id
 
@@ -654,31 +706,77 @@ getMember id@(Ident sId _ _) = return $ memberGetterName sId
 -- expressed via their ids respectively,
 -- creates the member's getter class if it doesn't exist
 registerMember :: Id -> Id -> Type -> TState ()
-registerMember sId mId t =
+registerMember sId mId t = do
+  state@TransformMonad
+    { createdClasses = cs
+    , builtIns = bIs
+    , memberClasses = mClasses
+    } <- get
   let
     sVar = Tyvar "structVar" Star
     sTVar = TVar sVar
     mClassName = memberClassName mId
     sCon = TCon (Tycon sId Star)
-  in do
-    state@TransformMonad{createdClasses=cs,builtIns=bIs,memberClasses=mClasses} <- get
-    if mId `Set.member` cs then
-      put state
-        { memberClasses = mClasses
-            <:> addInst [] (IsIn mClassName sCon)
-        }
-    else
-      put state
-        { memberClasses = mClasses
-            <:> addClass mClassName []
-            <:> addInst [] (IsIn mClassName sCon)
-        , builtIns =
-          ( memberGetterName mId :>:
-            quantify [sVar]
-            ([IsIn mClassName sTVar] :=> (sTVar `fn` t))
-          ) `Set.insert` bIs
-        , createdClasses = mId `Set.insert` cs
-        }
+    getter = memberGetterName mId :>:
+        quantify [sVar]
+        ([IsIn mClassName sTVar] :=> (sTVar `fn` t))
+  if mId `Set.member` cs then
+    put state
+      { memberClasses = mClasses
+          <:> addInst [] (IsIn mClassName sCon)
+      }
+  else
+    put state
+      { memberClasses = mClasses
+          <:> addClass mClassName []
+          <:> addInst [] (IsIn mClassName sCon)
+      , builtIns = getter `Set.insert` bIs
+      , createdClasses = mId `Set.insert` cs
+      }
+
+registerCHMMember :: Id -> Id -> Type -> TState ()
+registerCHMMember sId mId t = do
+  state@TransformMonad
+    { createdClasses = cs
+    , builtIns = bIs
+    , memberClasses = mClasses
+    , typeVariables = tVs
+    , typeAliases = tAs
+    , variableClasses = vCs
+    } <- get
+  let
+    mClassName = memberClassName mId
+    tVars = TVar <$> head tVs
+    sKind = takeNKind $ length tVars
+    sVar = Tyvar "structVar" sKind
+    sTVar = foldl TAp (TVar sVar) tVars
+    sCon = foldl TAp (TCon (Tycon sId sKind)) tVars
+    getter = memberGetterName mId :>:
+      quantify
+        (sVar : head tVs)
+        ((IsIn mClassName sTVar : head vCs) :=> (sTVar `fn` t))
+  if mId `Set.member` cs then
+    put state
+      { memberClasses = mClasses
+          <:> addInst [] (IsIn mClassName sCon)
+      }
+  else
+    put state
+      { memberClasses = mClasses
+          <:> addClass mClassName []
+          <:> addInst [] (IsIn mClassName sCon)
+      , builtIns = getter `Set.insert` bIs
+      , createdClasses = mId `Set.insert` cs
+      }
+
+registerStruct :: Id -> TState Bool
+registerStruct id = do
+  state@TransformMonad{registeredStructs=rSs} <- get
+  if id `Set.member` rSs then
+    return False
+  else do
+    put state{registeredStructs=id `Set.insert` rSs}
+    return True
 
 runTState :: TState a -> (a,TransformMonad)
 runTState a = runState a initTransformMonad
