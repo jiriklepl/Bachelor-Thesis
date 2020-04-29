@@ -1,27 +1,53 @@
 // CHM test source code
 
-struct hoplomoplo {
-	int hoplomember;
-} x;
+void* malloc(int);
+void free(void*);
 
-struct hohooclass {
-	float hohoomember;
+<a>
+a* fromVoidStar(void *v) {
+	// return (a*)v;
+}
+
+<a>
+void* toVoidStar(a *v) {
+	// return (void*)v;
+}
+
+<a>
+struct vector {
+	a* data;
+	int size, capacity;
 };
 
-<a, b : Num <a> >
-void do_something(a first, struct hoplomoplo hohoo) {
-	a second = first;
-	b third = hohoo;
-	second = first = 5;
-	switch (second) {
-	case 0:
-		break;
-	case 5:
-		break;
+<a : b ~ struct vector : <a> >
+b alloc_vector(int size)
+{
+	b v;
+	v.data = fromVoidStar(malloc(size));
+	v.size = 0;
+	v.capacity = size;
+	return v;
+}
+
+<a : b ~ struct vector : <a> >
+void push_back(b *v, a thing)
+{
+	if (v->size < v->capacity) {
+		v->data[v->size] = thing;
+		v->size = v->size + 1;
+	} else {
+		a *old = v->data;
+		*v = alloc_vector(v->capacity * 2);
+		// copy content
 	}
 }
 
+< : vector_int ~ struct vector : <int> >
 int main() {
-	int a = x.hoplomember;
-	do_something(a, x);
+	vector_int v = alloc_vector(5);
+	push_back(&v, 0);
+	push_back(&v, 1);
+	push_back(&v, 2);
+	push_back(&v, 3);
+	push_back(&v, 4);
 }
