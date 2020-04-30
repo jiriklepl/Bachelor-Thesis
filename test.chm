@@ -3,6 +3,10 @@
 void* malloc(int);
 void free(void*);
 
+class class_name <a : Num<a> /* super class */> {
+	a* classed_func();
+}
+
 <a>
 a* fromVoidStar(void *v) {
 	// return (a*)v;
