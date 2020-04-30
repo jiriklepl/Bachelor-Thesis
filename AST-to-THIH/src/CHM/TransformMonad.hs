@@ -89,7 +89,6 @@ module CHM.TransformMonad
   ) where
 
 import Control.Monad.State
-import Debug.Trace
 import Data.List
 import qualified Data.Set as Set
 import qualified Data.Map as Map

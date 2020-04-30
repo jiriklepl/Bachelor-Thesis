@@ -6,7 +6,6 @@ import qualified Data.Set as Set
 
 import TypingHaskellInHaskell
 import Language.C.Data
-import Debug.Trace
 import Language.C.Syntax
 import Language.C.Data.Ident (Ident(..))
 
@@ -633,8 +632,12 @@ translateConstraints [] = return ()
 instance Transform CHMHead where
   transform (CHMHead [] [] _) = return []
   transform (CHMHead types [] _) = do
-    foldl1 (>>) [storeName id | Ident id _ _ <- types]
-    foldl1 (>>) $ (\(Ident id _ _) -> flip Tyvar Star <$> scopedName id >>= chmAddVariable) <$> types
+    foldl1 (>>) [ do
+        storeName id
+        scopedId <- scopedName id
+        chmAddVariable $ Tyvar scopedId Star
+      | Ident id _ _ <- types
+      ]
     return []
   transform (CHMHead types constraints a) = do
     transform (CHMHead types [] a)
