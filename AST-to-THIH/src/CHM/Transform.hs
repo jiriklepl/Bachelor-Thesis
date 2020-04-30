@@ -25,9 +25,10 @@ typeInfer a =
       runTState . transform $ a
   in
     case mcs initialEnv of
-      Nothing -> ["@programEnvironment" :>: toScheme tError]  -- TODO
+      Nothing -> ["@programEnvironment" :>: toScheme tError]  -- TODO: but I like it like it is
       Just env -> tiProgram env (Set.toList bis) program
 
+-- | Takes a `Program` and flattens it into a `BindGroup`
 collapseScope :: Program -> BindGroup
 collapseScope ((expls, impls) : rest) =
   let
@@ -35,9 +36,16 @@ collapseScope ((expls, impls) : rest) =
   in (expls ++ restExpls, impls ++ restImpls)
 collapseScope [] = ([],[])
 
+{- |
+  Just reverses expls, this is used because of the order of dependencies
+  in declarations inside functions
+-}
 reverseExpls :: BindGroup -> BindGroup
 reverseExpls (expls, impls) = (reverse expls, impls)
 
+{- |
+  TODO: I should describe this and also check its validity
+-}
 reassemble :: BindGroup -> TState BindGroup
 reassemble bindGroup@([(name,scheme,[(pats, Let (expls, impls) returnValue)])], []) = case expls of
   (eName, eScheme, [([],expr)]) : rest ->
@@ -60,7 +68,7 @@ reassemble bindGroup@([(name,scheme,[(pats, Let (expls, impls) returnValue)])], 
       return ([(name,scheme,[(pats, Let bindGroup' $ foldl Ap (Var ("TODO_" ++ eName)) (expr : others))])], [])
   _ -> return bindGroup
 
--- this goes through the structure and removes temporary types with generics
+-- | This goes through the structure and replaces temporary types with generics
 class CHMSchemize a where
   chmSchemize :: a -> TState a
 
@@ -108,11 +116,12 @@ instance CHMSchemize Expr where
 instance CHMSchemize Assump where
   chmSchemize (id :>: scheme) = (id :>:) <$> chmSchemize scheme
 
-
+-- | Makes sure the top-most type is tConst (adds it if it isn't)
 toConst :: Type -> Type
 toConst c@(TAp tConst a) = c
 toConst c = TAp tConst c
 
+-- | Translates '[CDeclSpec]' type annotation to the haskell-like 'Type'
 translateDeclSpecs :: [CDeclSpec] -> TState Type  -- TODO: just temporary implementation, should use the State monad
 translateDeclSpecs (decl:decls) = case decl of
   CTypeSpec (CVoidType _) -> return tVoid
@@ -256,7 +265,7 @@ instance Transform CExtDecl where
   transform  (CHMFDefExt a) = transform a
   transform  (CHMSDefExt a) = transform a
   transform  (CHMCDefExt a) = transform a
-  -- TODO: transform  (CHMIDefExt a) = transform a
+  transform  (CHMIDefExt a) = transform a
   transform  (CAsmExt  a _) = transform a
 
 -- these are better than the corresponding foldl because of the stronger type safety
@@ -641,10 +650,12 @@ instance Transform CHMStructDef where
     leaveCHMHead
     return []
 
--- registers a new class and declares its content,
--- adds an entry for each declaration to the transform monad
--- (as we have to remember them when making instances of the class)
--- TODO: this looks too obfuscated (more so than how haskell usually looks)
+{- |
+  Registers a new class and declares its content,
+  adds an entry for each declaration to the transform monad
+  (as we have to remember them when making instances of the class)
+  TODO: this looks too obfuscated (more so than how haskell usually looks)
+-}
 declareClassContents :: Id -> [CExtDecl] -> TState [Expl]
 declareClassContents id cExtDecls = do
   registered <- registerClass id
@@ -679,3 +690,13 @@ instance Transform CHMCDef where
     expls <- declareClassContents cId cExtDecls
     leaveCHMHead
     return [(expls, [])]
+
+instance Transform CHMIDef where
+  transform (CHMIDef (Ident iId _ _) chmPars cExtDecls _) =
+    return []  -- TODO: see the one after this one
+
+  transform (CHMIDefHead (Ident iId _ _) chmHead chmPars cExtDecls _) = do
+    enterCHMHead
+    transHead <- transform chmHead
+    leaveCHMHead
+    return []  -- TODO: it should return functions

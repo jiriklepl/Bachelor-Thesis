@@ -114,20 +114,41 @@ initScope name id = Scope
   }
 
 data TransformMonad = TransformMonad
-  { tuples :: Set.Set Int  -- memory of created tuple makers
-  , nested :: [Scope]  -- to avoid name collisions
+  { tuples :: Set.Set Int
+    -- ^ memory of created tuple makers
+  , nested :: [Scope]
+    -- ^ to avoid name collisions
   , switchScopes :: [Int]
+    {- ^
+      remembers the number of the scope of a switch statement
+      to connect it to its cases (we can have while in a switch etc.)
+      recursively
+    -}
   , functionScopes :: [(Id, [ReturnExpr])]
+    {- ^
+      This is used for naming of nested variables and for connecting
+      return statements to their functions
+    -}
   , lastScope :: Int
+    -- ^ the number of the last created scope
   , registeredStructs :: Set.Set Id
+    -- ^ names of all created structs
   , anonymousCounter :: Int
+    -- ^ number of the NEXT anonymous variable
   , userClasses :: Map.Map Id [Assump]
+    -- ^ map of all created user classes and their methods
   , typeVariables :: [[Tyvar]]
-  , typeAliases :: [Map.Map Id Type]  -- types that are actually aliases in chm heads
-  , variableClasses :: [[Pred]]  -- class constraints over variables in chm heads
-  , createdClasses :: Set.Set Id  -- memory of created member accessors
-  , memberClasses :: EnvTransformer  -- all classes and their instances
-  , builtIns :: Set.Set Assump  -- all created symbols
+    -- ^ type variables declared in chm heads
+  , typeAliases :: [Map.Map Id Type]
+    -- ^ types that are actually aliases in chm heads
+  , variableClasses :: [[Pred]]
+    -- ^ class constraints over variables in chm heads
+  , createdClasses :: Set.Set Id
+    -- ^ memory of created member accessors
+  , memberClasses :: EnvTransformer
+    -- ^ all classes and their instances
+  , builtIns :: Set.Set Assump
+    -- ^ all created symbols
   }
 
 type TState = State TransformMonad
@@ -136,7 +157,6 @@ tPointer :: Type
 tConst :: Type
 tError :: Type
 tTuple3  :: Type
-
 
 tPointer = TCon (Tycon "@Pointer" (Kfun Star Star))
 tConst = TCon (Tycon "@Const" (Kfun Star Star))
@@ -216,48 +236,60 @@ subOpFunc     :: Id
 shlOpFunc     :: Id
 shrOpFunc     :: Id
 xorOpFunc     :: Id
-orOpFunc     :: Id
+orOpFunc      :: Id
 andOpFunc     :: Id
-logAndOpFunc     :: Id
-logOrOpFunc     :: Id
+logAndOpFunc  :: Id
+logOrOpFunc   :: Id
 
 eqOpFunc      :: Id
-neqOpFunc      :: Id
+neqOpFunc     :: Id
 ltOpFunc      :: Id
 gtOpFunc      :: Id
 leOpFunc      :: Id
 geOpFunc      :: Id
 
-assOpFunc      :: Id
-mulAssOpFunc      :: Id
-divAssOpFunc      :: Id
-modAssOpFunc      :: Id
-addAssOpFunc      :: Id
-subAssOpFunc      :: Id
-shlAssOpFunc      :: Id
-shrAssOpFunc      :: Id
-andAssOpFunc      :: Id
-xorAssOpFunc      :: Id
-orAssOpFunc      :: Id
+assOpFunc     :: Id
+mulAssOpFunc  :: Id
+divAssOpFunc  :: Id
+modAssOpFunc  :: Id
+addAssOpFunc  :: Id
+subAssOpFunc  :: Id
+shlAssOpFunc  :: Id
+shrAssOpFunc  :: Id
+andAssOpFunc  :: Id
+xorAssOpFunc  :: Id
+orAssOpFunc   :: Id
 
-preIncOpFunc :: Id
+preIncOpFunc  :: Id
 postIncOpFunc :: Id
-preDecOpFunc :: Id
+preDecOpFunc  :: Id
 postDecOpFunc :: Id
-plusOpFunc :: Id
-minusOpFunc :: Id
-complOpFunc :: Id
-negOpFunc :: Id
+plusOpFunc    :: Id
+minusOpFunc   :: Id
+complOpFunc   :: Id
+negOpFunc     :: Id
 
-commaOpFunc   :: Id  -- takes two things and returns the second
+-- takes two things and returns the second
+commaOpFunc   :: Id
 ternaryOpFunc :: Id
 elvisOpFunc   :: Id
 indexOpFunc   :: Id
-refFunc :: Id
-derefFunc :: Id
+refFunc       :: Id
+derefFunc     :: Id
 
-returnFunc :: Id
-caseFunc :: Id
+returnFunc    :: Id
+caseFunc      :: Id
+
+{-
+  Operators follow a naming convention where there is
+  the operator itself followed by the number of its operands
+  (with notable exception where we have to distinguish the
+  pre-increment and post-increment operators)
+
+  This naming convention ensures the names are simple enough
+  and that they resemble their appearance in the code while
+  giving unique names to their unary and binary counterparts
+-}
 
 mulOpFunc     = "*2"
 divOpFunc     = "/2"
@@ -267,38 +299,38 @@ subOpFunc     = "-2"
 shlOpFunc     = "<<2"  -- TODO
 shrOpFunc     = ">>2"  -- TODO
 xorOpFunc     = "^2"  -- TODO
-orOpFunc     = "|2"  -- TODO
+orOpFunc      = "|2"  -- TODO
 andOpFunc     = "&2"  -- TODO
-logAndOpFunc     = "&&2"  -- TODO
-logOrOpFunc     = "||2"  -- TODO
+logAndOpFunc  = "&&2"  -- TODO
+logOrOpFunc   = "||2"  -- TODO
 
 eqOpFunc      = "==2"
-neqOpFunc      = "!=2"
+neqOpFunc     = "!=2"
 ltOpFunc      = "<2"
 gtOpFunc      = ">2"
 leOpFunc      = "<=2"
 geOpFunc      = ">=2"
 
-assOpFunc      = "=2"
-mulAssOpFunc      = "*=2"
-divAssOpFunc      = "/=2"
-modAssOpFunc      = "%=2"
-addAssOpFunc      = "+=2"
-subAssOpFunc      = "-=2"
-shlAssOpFunc      = "<<=2"  -- TODO
-shrAssOpFunc      = ">>=2"  -- TODO
-andAssOpFunc      = "&=2"  -- TODO
-xorAssOpFunc      = "^=2"  -- TODO
-orAssOpFunc      = "|=2"  -- TODO
+assOpFunc     = "=2"
+mulAssOpFunc  = "*=2"
+divAssOpFunc  = "/=2"
+modAssOpFunc  = "%=2"
+addAssOpFunc  = "+=2"
+subAssOpFunc  = "-=2"
+shlAssOpFunc  = "<<=2"  -- TODO
+shrAssOpFunc  = ">>=2"  -- TODO
+andAssOpFunc  = "&=2"  -- TODO
+xorAssOpFunc  = "^=2"  -- TODO
+orAssOpFunc   = "|=2"  -- TODO
 
-preIncOpFunc = "++1"  -- TODO
+preIncOpFunc  = "++1"  -- TODO
 postIncOpFunc = "1++"  -- TODO
-preDecOpFunc = "--1"  -- TODO
+preDecOpFunc  = "--1"  -- TODO
 postDecOpFunc = "1--"  -- TODO
-plusOpFunc = "+1"  -- TODO
-minusOpFunc = "-1"  -- TODO
-complOpFunc = "~1"  -- TODO
-negOpFunc = "!1"  -- TODO
+plusOpFunc    = "+1"  -- TODO
+minusOpFunc   = "-1"  -- TODO
+complOpFunc   = "~1"  -- TODO
+negOpFunc     = "!1"  -- TODO
 
 commaOpFunc   = ",2"
 ternaryOpFunc = "?:3"
@@ -307,8 +339,8 @@ indexOpFunc   = "[]2"
 refFunc       = "&1"
 derefFunc     = "*1"
 
-returnFunc     = "@return"
-caseFunc     = "@case"
+returnFunc    = "@return"
+caseFunc      = "@case"
 
 initTransformMonad :: TransformMonad
 initTransformMonad = TransformMonad
@@ -567,7 +599,6 @@ replaceAliases (TAp t1 t2) = do
 -- for TGen(?) and mainly TCon
 replaceAliases t = return t
 
-
 chmScheme :: Type -> TState Scheme
 chmScheme t = do
   state@TransformMonad
@@ -691,18 +722,17 @@ getTuple n = do
     return translate
   where translate = "@make_tuple" ++ show n
 
--- getMember creates a member accessor
--- (if it doesn't exist, and its "@Has_X" class)
--- and returns its id
-
 memberClassName :: Id -> Id
 memberClassName id = "Has_" ++ id
 
--- this has to be named so that it cannot collide with
+-- This has to be named so that it cannot collide with
 -- other functions
 memberGetterName :: Id -> Id
 memberGetterName id = ".get:" ++ id
 
+-- 'getMember' creates a member accessor
+-- (if it doesn't exist, and its "@Has_X" class)
+-- and returns its id
 getMember :: Ident -> TState Id
 getMember id@(Ident sId _ _) = return $ memberGetterName sId
 
@@ -773,6 +803,7 @@ registerCHMMember sId mId t = do
       , createdClasses = mId `Set.insert` cs
       }
 
+-- | Makes a new entry for the given struct in the transform monad
 registerStruct :: Id -> TState Bool
 registerStruct id = do
   state@TransformMonad{registeredStructs=rSs} <- get
@@ -782,7 +813,7 @@ registerStruct id = do
     put state{registeredStructs=id `Set.insert` rSs}
     return True
 
--- makes a new entry in the class environment and in the transform monad
+-- | Makes a new entry in the class environment and in the transform monad
 registerClass :: Id -> TState Bool
 registerClass id = do
   state@TransformMonad
@@ -818,6 +849,7 @@ registerClass id = do
     -- a class entry was actually created
     return True
 
+-- | Registers 'Assump' of a declaration in a class
 registerClassDeclaration :: Id -> Assump -> TState ()
 registerClassDeclaration id assump = do
   state@TransformMonad{userClasses=uCs} <- get
