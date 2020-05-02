@@ -902,9 +902,11 @@ registerMethodInstance cId mId scheme = do
                 Map.adjust
                   (\method -> method
                     { methodInstances =
-                        name
-                        `Set.insert`
-                        methodInstances method
+                        let instances = methodInstances method
+                        in
+                          if name `Set.member` instances
+                          then error "method's instance already defined"
+                          else name `Set.insert` instances
                     }
                   )
                   mId
