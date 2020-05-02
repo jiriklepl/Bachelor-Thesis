@@ -497,10 +497,10 @@ instance Transform CStat where
     CExpr Nothing _ -> return []
     CCompound _ [] _ -> return []
     CCompound _ block _ -> do
-        enterScope []
+      enterScope []
       transBlock <- concat <$> traverse transform block
-        leaveScope
-        return transBlock
+      leaveScope
+      return transBlock
     CIf expr tStmt (Just fStmt) _ -> do
       anonNumber <- getNextAnon
       transExpr <- transformExpr expr
@@ -659,12 +659,35 @@ instance Transform CHMCDef where
     leaveCHMHead
     return [(expls, [])]
 
+{- |
+  Translates definitions inside Instance blocks
+-}
+defineInstanceContents :: Id -> CHMParams -> [CExtDecl] -> TState BindGroup
+defineInstanceContents id chmPars cExtDecls = do
+  let
+    instanceDefine (CFDefExt f) =
+      instanceDefine . CHMFDefExt $ CHMFunDef
+        (CHMHead [] [] $ nodeInfo f)
+        f
+        (nodeInfo f)
+    instanceDefine (CHMFDefExt f) = do
+      fTrans <- transform f
+      let [([(name, scheme, def)],[])] = fTrans
+      mScheme <- getMethodScheme id name
+      name' <- registerMethodInstance id name scheme
+      case mScheme of
+       Just scheme' -> return ([(name', scheme, def)], [])
+       Nothing -> return $ error "Cannot define given instance method"
+    instanceDefine _ = return $ error "Instances shall contain only method defintions"
+  flattenProgram <$> traverse instanceDefine cExtDecls
+
 instance Transform CHMIDef where
-  transform (CHMIDef (Ident iId _ _) chmPars cExtDecls _) =
-    return []  -- TODO: see the one after this one
+  transform (CHMIDef (Ident iId _ _) chmPars cExtDecls _) = do
+    pure <$> defineInstanceContents iId chmPars cExtDecls
 
   transform (CHMIDefHead (Ident iId _ _) chmHead chmPars cExtDecls _) = do
     enterCHMHead
     transHead <- transform chmHead
+    rtrn <- defineInstanceContents iId chmPars cExtDecls
     leaveCHMHead
-    return []  -- TODO: it should return functions
+    return [rtrn]  -- TODO: it should return functions
