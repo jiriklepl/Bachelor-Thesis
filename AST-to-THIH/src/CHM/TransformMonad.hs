@@ -85,6 +85,8 @@ module CHM.TransformMonad
   , registerStruct
   , registerClass
   , registerClassDeclaration
+  , getMethodScheme
+  , registerMethodInstance
   , runTState
   ) where
 
@@ -112,6 +114,26 @@ initScope name id = Scope
   , scopeVars = Set.empty
   }
 
+data Method = Method
+  { methodScheme :: Scheme
+  , methodInstances :: Set.Set Id
+  }
+
+initMethod :: Scheme -> Method
+initMethod s = Method
+  { methodScheme = s
+  , methodInstances = Set.empty
+  }
+
+data UserClass = UserClass
+  { methods :: (Map.Map Id Method)
+  }
+
+initUserClass :: UserClass
+initUserClass = UserClass
+  { methods = Map.empty
+  }
+
 data TransformMonad = TransformMonad
   { tuples :: Set.Set Int
     -- ^ memory of created tuple makers
@@ -134,7 +156,7 @@ data TransformMonad = TransformMonad
     -- ^ names of all created structs
   , anonymousCounter :: Int
     -- ^ number of the NEXT anonymous variable
-  , userClasses :: Map.Map Id [Assump]
+  , userClasses :: Map.Map Id UserClass
     -- ^ map of all created user classes and their methods
   , typeVariables :: [[Tyvar]]
     -- ^ type variables declared in chm heads
@@ -840,7 +862,7 @@ registerClass id = do
         | IsIn name t <- head vCs
         ]
     put state
-      { userClasses = Map.insert id [] uCs  -- we add a new entry for the class
+      { userClasses = Map.insert id initUserClass uCs  -- we add a new entry for the class
       , variableClasses = [IsIn id classType] : tail vCs  -- we replace all constraints with the class
       , memberClasses = mCs
           <:> addClass id superClasses  -- we add an entry to the class environment
@@ -848,13 +870,51 @@ registerClass id = do
     -- a class entry was actually created
     return True
 
--- | Registers 'Assump' of a declaration in a class
+-- | Registers the 'Assump' of a declaration in a class
 registerClassDeclaration :: Id -> Assump -> TState ()
-registerClassDeclaration id assump = do
+registerClassDeclaration cId (mId :>: scheme) = do
   state@TransformMonad{userClasses=uCs} <- get
   put state
-    { userClasses = Map.adjust (assump:) id uCs
+    { userClasses = Map.adjust (\uClass -> uClass{methods = Map.insert mId (initMethod scheme) (methods uClass)}) cId uCs
     }
+
+-- | Returns 'Just' the 'Scheme' of a method of a class specified by their 'Id's
+-- or returns 'Nothing' if lookup of either of those fails
+getMethodScheme :: Id -> Id -> TState (Maybe Scheme)
+getMethodScheme cId mId = do
+  state@TransformMonad{userClasses=uCs} <- get
+  return $ methodScheme <$> (Map.lookup mId =<< methods <$> (Map.lookup cId uCs))
+
+mangleName :: Id -> Scheme -> TState Id
+mangleName id scheme = do
+  num <- getNextAnon
+  return $ id ++ '_' : show num  -- TODO
+
+registerMethodInstance :: Id -> Id -> Scheme -> TState Id
+registerMethodInstance cId mId scheme = do
+  state@TransformMonad{userClasses=uCs} <- get
+  name <- mangleName mId scheme
+  put state
+    { userClasses =
+        Map.adjust
+          (\uClass -> uClass
+            { methods =
+                Map.adjust
+                  (\method -> method
+                    { methodInstances =
+                        name
+                        `Set.insert`
+                        methodInstances method
+                    }
+                  )
+                  mId
+                  (methods uClass)
+            }
+          )
+          cId
+          uCs
+    }
+  return name
 
 runTState :: TState a -> (a,TransformMonad)
 runTState a = runState a initTransformMonad
