@@ -28,12 +28,12 @@ typeInfer a =
       Just env -> tiProgram env (Set.toList bis) program
 
 -- | Takes a `Program` and flattens it into a `BindGroup`
-collapseScope :: Program -> BindGroup
-collapseScope ((expls, impls) : rest) =
+flattenProgram :: Program -> BindGroup
+flattenProgram ((expls, impls) : rest) =
   let
-    (restExpls, restImpls) = collapseScope rest
+    (restExpls, restImpls) = flattenProgram rest
   in (expls ++ restExpls, impls ++ restImpls)
-collapseScope [] = ([],[])
+flattenProgram [] = ([],[])
 
 {- |
   Just reverses expls, this is used because of the order of dependencies
@@ -81,11 +81,7 @@ instance CHMSchemize BindGroup where
       return (expls', impls')
 
 instance CHMSchemize a => CHMSchemize [a] where
-  chmSchemize (x:xs) = do
-    x' <- chmSchemize x
-    xs' <- chmSchemize xs
-    return $ x' : xs'
-  chmSchemize [] = return []
+  chmSchemize = traverse chmSchemize
 
 instance CHMSchemize Expl where
   chmSchemize (name, scheme, alts) = do
@@ -253,10 +249,7 @@ registerCHMStructMembers id cDecls = do
 
 instance Transform CTranslUnit where
   transform (CTranslUnit [] _) = return []
-  transform (CTranslUnit (extDecl:extDecls) a) = do
-    decl <- transform extDecl
-    decls <- transform (CTranslUnit extDecls a)
-    return $ decl ++ decls
+  transform (CTranslUnit extDecls a) = concat <$> traverse transform extDecls
 
 instance Transform CExtDecl where
   transform  (CDeclExt a)   = transform a
@@ -276,15 +269,10 @@ ap3 f a b c = foldl Ap f [a, b, c]
 
 transformExpr :: CExpr -> TState Expr
 transformExpr cExpr = let
-    transforms [] = return []
-    transforms (hExpr:tExprs) = do
-      hTrans  <- transformExpr hExpr
-      tTranss <- transforms tExprs
-      return (hTrans:tTranss)
   in case cExpr of
   -- exprs is guaranteed to have at least 2 elements
   CComma exprs _ -> do
-    transs <- transforms exprs
+    transs <- traverse transformExpr exprs
     return $ foldl1
       (\a b -> Ap (Ap (Var commaOpFunc) a) b)
       transs
@@ -337,7 +325,7 @@ transformExpr cExpr = let
   CCall func exprs _ -> do
     tuple <- getTuple (length exprs)
     fTrans <- transformExpr func
-    eTrans <- transforms exprs
+    eTrans <- traverse transformExpr exprs
     return $ Ap
       fTrans
       (foldl Ap (Var tuple) eTrans)
@@ -473,7 +461,7 @@ instance Transform CHMFunDef where
                       (PVar <$> parIds)
                   ]
                 , Let
-                    (collapseScope transStmt)
+                    (flattenProgram transStmt)
                     $ foldl -- TODO: here we can do warning if retType is not tVoid and there is nothing to actually return
                       (\ a b -> Var returnFunc `Ap` a `Ap` b)
                       (Const $ returnName :>: toScheme retType)
@@ -508,16 +496,9 @@ instance Transform CStat where
     CExpr (Just expr) _ -> transform expr
     CExpr Nothing _ -> return []
     CCompound _ [] _ -> return []
-    CCompound _ block _ ->
-      let
-        transforms (first:rest) = do
-          firstTrans <- transform first
-          restTrans <- transforms rest
-          return $ firstTrans ++ restTrans
-        transforms [] = return []
-      in do
+    CCompound _ block _ -> do
         enterScope []
-        transBlock <- transforms block
+      transBlock <- concat <$> traverse transform block
         leaveScope
         return transBlock
     CIf expr tStmt (Just fStmt) _ -> do
@@ -596,19 +577,14 @@ transformConstraint constr = do
     translateType (CHMCType declSpecs _) = translateDeclSpecs declSpecs
     translateType (CHMParType cType (CHMParams cTypes _) _) = do
       transT <- translateType cType
-      transTs <- translateTypes cTypes
+      transTs <- traverse translateType cTypes
       let
         apT = foldl TAp transT transTs
       fixKinds apT
-    translateTypes (t:ts) = do
-      transT <- translateType t
-      transTs <- translateTypes ts
-      return $ transT : transTs
-    translateTypes [] = return []
   case constr of
     (CHMClassConstr (Ident id _ _) cTypes _) -> do
       let count = length cTypes
-      transTypes <- translateTypes cTypes
+      transTypes <- traverse translateType cTypes
       if count == 1 then
         return . Just . IsIn id $ head transTypes
       else
@@ -670,20 +646,9 @@ declareClassContents id cExtDecls = do
           registerClassDeclaration id (name :>: scheme)
           return (name, scheme, [])
         translateDeclaration _ = return $ error "only pure declarations allowed here"
-        translateDeclarations (decl:rest) = do
-          transDecl <- translateDeclaration decl
-          transRest <- translateDeclarations rest
-          return $ transDecl : transRest
-        translateDeclarations [] = return []
-      transform cDecl >>= translateDeclarations
+      transform cDecl >>= traverse translateDeclaration
     classDeclare _ = return $ error "only declarations allowed in class declarations"
-    classDeclares (first:others) = do
-      transFirst <- classDeclare first
-      transRest <- classDeclares others
-      return $ transFirst ++ transRest
-    classDeclares [] = return []
-  if registered then
-    classDeclares cExtDecls
+  if registered then concat <$> traverse classDeclare cExtDecls
   else return $ error "class already defined"
 
 instance Transform CHMCDef where
