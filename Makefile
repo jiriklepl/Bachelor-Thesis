@@ -1,10 +1,10 @@
 .PHONY: build clean run
 
 build:
-	cabal build all
+	cabal build all --haddock-internal
 
 clean:
 	cabal clean
 
-run:
-	cabal run CHM-instantiate
+run: build
+	cabal run CHM-instantiate --haddock-internal
