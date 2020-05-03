@@ -227,7 +227,7 @@ registerStructMembers id cDecls = do
         (Just (CDeclr (Just (Ident mId _ _)) derivedDecls _ _ _), Just _, Nothing):rest ->
           registerSingleCDecl (CDecl specs rest a)  -- TODO: this is probably error (but still recognized by c++ as kosher)
         [] -> return ()
-  when registered $ foldl1 (>>) (registerSingleCDecl <$> cDecls)
+  when registered $ sequence_ (registerSingleCDecl <$> cDecls)
 
 registerCHMStructMembers :: Id -> [CDecl] -> TState ()
 registerCHMStructMembers _ [] = return ()
@@ -244,7 +244,7 @@ registerCHMStructMembers id cDecls = do
         (Just (CDeclr (Just (Ident mId _ _)) derivedDecls _ _ _), Just _, Nothing):rest ->
           registerSingleCDecl (CDecl specs rest a)  -- TODO: this is probably error (but still recognized by c++ as kosher)
         _ -> return ()
-  when registered $ foldl1 (>>) (registerSingleCDecl <$> cDecls)
+  when registered $ sequence_ (registerSingleCDecl <$> cDecls)
 
 
 instance Transform CTranslUnit where
@@ -594,25 +594,24 @@ transformConstraint constr =
       return Nothing
 
 translateConstraints :: [CHMConstr] -> TState ()
-translateConstraints (c:cs) = do
-  transC <- transformConstraint c
-  case transC of
-    Just x -> chmAddClass x
-    _ -> return ()
-  transRest <- translateConstraints cs
-  return ()
-translateConstraints [] = return ()
+translateConstraints cs = sequence_
+  [ do
+    transC <- transformConstraint c
+    case transC of
+      Just x -> chmAddClass x
+      _ -> return ()
+  | c <- cs
+  ]
 
 instance Transform CHMHead where
   transform (CHMHead [] [] _) = return []
-  transform (CHMHead types [] _) = do
-    foldl1 (>>) [ do
-        storeName id
-        scopedId <- scopedName id
-        chmAddVariable $ Tyvar scopedId Star
-      | Ident id _ _ <- types
-      ]
-    return []
+  transform (CHMHead types [] _) = sequence_
+    [ do
+      storeName id
+      scopedId <- scopedName id
+      chmAddVariable $ Tyvar scopedId Star
+    | Ident id _ _ <- types
+    ] >> return []
   transform (CHMHead types constraints a) = do
     transform (CHMHead types [] a)
     translateConstraints constraints
