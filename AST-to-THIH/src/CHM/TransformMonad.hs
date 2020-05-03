@@ -85,6 +85,7 @@ module CHM.TransformMonad
   , getMember
   , registerMember
   , registerCHMMember
+  , createParamsType
   , registerStruct
   , registerClass
   , registerClassDeclaration
@@ -765,7 +766,7 @@ getTuple n = do
     return translate
   where translate = "@make_tuple" ++ show n
 
--- | creates a new name for the type class of the gettter/setter of the member field
+-- | creates a new name for the type class of the getter/setter of the member field
 memberClassName :: Id -> Id
 memberClassName id = "Has_" ++ id
 
@@ -848,6 +849,12 @@ registerCHMMember sId mId t = do
       , createdClasses = mId `Set.insert` cs
       }
 
+-- | Creates a tuple of parameter types if there is a multiple of them,
+-- if there is only one, returns it without creating a tuple
+createParamsType :: [Type] -> Type
+createParamsType [t] = t
+createParamsType ts = foldl TAp (getTupleOp $ length ts) ts
+
 -- | Makes a new entry for the given struct in the 'TransformMonad'
 registerStruct :: Id -> TState Bool
 registerStruct id = do
@@ -874,11 +881,7 @@ registerClass id = do
     let
       tVars = head tVs
       count = length tVars
-      classType =
-        if count == 1 then
-          TVar $ head tVars
-        else
-          foldl TAp (getTupleOp count) (TVar <$> tVars)
+      classType = createParamsType $ TVar <$> tVars
       superClasses =
         [ if t /= classType
           then error "invalid superclass"  -- super-class has to have the same parameter(s)
@@ -909,15 +912,15 @@ getMethodScheme cId mId = do
   state@TransformMonad{userClasses=uCs} <- get
   return $ methodScheme <$> (Map.lookup mId =<< methods <$> (Map.lookup cId uCs))
 
-mangleName :: Id -> Scheme -> TState Id
-mangleName id scheme = do
+mangleName :: Id -> Type -> TState Id
+mangleName id mType = do
   num <- getNextAnon
   return $ id ++ '_' : show num  -- TODO
 
-registerMethodInstance :: Id -> Id -> Scheme -> TState Id
-registerMethodInstance cId mId scheme = do
-  state@TransformMonad{userClasses=uCs} <- get
-  name <- mangleName mId scheme
+registerMethodInstance :: Id -> Id -> Type -> TState Id
+registerMethodInstance cId mId mType = do
+  state@TransformMonad{userClasses=uCs, memberClasses=mCs} <- get
+  name <- mangleName mId mType
   put state
     { userClasses =
         Map.adjust
@@ -939,6 +942,8 @@ registerMethodInstance cId mId scheme = do
           )
           cId
           uCs
+    , memberClasses = mCs
+        <:> addInst [] (IsIn cId mType)
     }
   return name
 

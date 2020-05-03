@@ -571,26 +571,24 @@ fixKinds t = do
     putAp (TVar (Tyvar _ _)) (id, kind) = TVar $ Tyvar id kind
   return $ putAp t ap
 
-transformConstraint :: CHMConstr -> TState (Maybe Pred)
-transformConstraint constr = do
+translateCHMType :: CHMT -> TState Type
+translateCHMType (CHMCType declSpecs _) = translateDeclSpecs declSpecs
+translateCHMType (CHMParType cType (CHMParams cTypes _) _) = do
+  transT <- translateCHMType cType
+  transTs <- traverse translateCHMType cTypes
   let
-    translateType (CHMCType declSpecs _) = translateDeclSpecs declSpecs
-    translateType (CHMParType cType (CHMParams cTypes _) _) = do
-      transT <- translateType cType
-      transTs <- traverse translateType cTypes
-      let
-        apT = foldl TAp transT transTs
-      fixKinds apT
+    apT = foldl TAp transT transTs
+  fixKinds apT
+
+transformConstraint :: CHMConstr -> TState (Maybe Pred)
+transformConstraint constr =
   case constr of
     (CHMClassConstr (Ident id _ _) cTypes _) -> do
       let count = length cTypes
-      transTypes <- traverse translateType cTypes
-      if count == 1 then
-        return . Just . IsIn id $ head transTypes
-      else
-        return . Just . IsIn id $ foldl TAp (getTupleOp count) transTypes
+      transTypes <- traverse translateCHMType cTypes
+      return . Just . IsIn id $ createParamsType transTypes
     (CHMUnifyConstr (Ident id _ _) cType _) -> do
-      transType <- translateType cType
+      transType <- translateCHMType cType
       storeName id
       scopedName id >>= flip chmAddAlias transType
       return Nothing
@@ -663,7 +661,7 @@ instance Transform CHMCDef where
   Translates definitions inside Instance blocks
 -}
 defineInstanceContents :: Id -> CHMParams -> [CExtDecl] -> TState BindGroup
-defineInstanceContents id chmPars cExtDecls = do
+defineInstanceContents id (CHMParams chmTypes _) cExtDecls = do
   let
     instanceDefine (CFDefExt f) =
       instanceDefine . CHMFDefExt $ CHMFunDef
@@ -674,20 +672,21 @@ defineInstanceContents id chmPars cExtDecls = do
       fTrans <- transform f
       let [([(name, scheme, def)],[])] = fTrans
       mScheme <- getMethodScheme id name
-      name' <- registerMethodInstance id name scheme
+      parType <- createParamsType <$> traverse translateCHMType chmTypes
+      name' <- registerMethodInstance id name parType
       case mScheme of
-       Just scheme' -> return ([(name', scheme, def)], [])
+       Just scheme' -> return ([(name', scheme, ([], Var name) : def)], [])
        Nothing -> return $ error "Cannot define given instance method"
-    instanceDefine _ = return $ error "Instances shall contain only method defintions"
+    instanceDefine _ = return $ error "Instances shall contain only method definitions"
   flattenProgram <$> traverse instanceDefine cExtDecls
 
 instance Transform CHMIDef where
-  transform (CHMIDef (Ident iId _ _) chmPars cExtDecls _) = do
-    pure <$> defineInstanceContents iId chmPars cExtDecls
+  transform (CHMIDef id chmPars cExtDecls nInfo) =
+    transform (CHMIDefHead id (CHMHead [] [] nInfo) chmPars cExtDecls nInfo)
 
   transform (CHMIDefHead (Ident iId _ _) chmHead chmPars cExtDecls _) = do
     enterCHMHead
     transHead <- transform chmHead
     rtrn <- defineInstanceContents iId chmPars cExtDecls
     leaveCHMHead
-    return [rtrn]  -- TODO: it should return functions
+    return [rtrn]
