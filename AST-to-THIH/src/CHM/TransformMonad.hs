@@ -1,7 +1,10 @@
 module CHM.TransformMonad
-  ( TransformMonad(..)
+  ( MethodNamed
+  , Method(..)
+  , TransformMonad(..)
   , TState
   , get, put
+  , getClassMethods
   , tPointer
   , tConst
   , tError
@@ -128,6 +131,11 @@ initMethod s = Method
 data UserClass = UserClass
   { methods :: (Map.Map Id Method)
   }
+
+type MethodNamed = (Id, Method)
+
+getClassMethods :: UserClass -> [(Id, Method)]
+getClassMethods = Map.toList . methods
 
 initUserClass :: UserClass
 initUserClass = UserClass
@@ -607,6 +615,7 @@ filterClasses acc@(tVars, preds, outPreds) =
       let tVars' = foldr ($) tVars [addTypesFromType t | IsIn _ t <- preds']
       in filterClasses (tVars', preds'', preds' ++ outPreds)
 
+-- | replaces aliases created in the last chm head by real type variables
 replaceAliases :: Type -> TState Type
 replaceAliases t@(TVar (Tyvar id kind)) = do
   TransformMonad{typeAliases = tAs} <- get
@@ -620,6 +629,7 @@ replaceAliases (TAp t1 t2) = do
 -- for TGen(?) and mainly TCon
 replaceAliases t = return t
 
+-- | replaces type annotations with generic types and constraints (see 'quantify')
 chmScheme :: Type -> TState Scheme
 chmScheme t = do
   state@TransformMonad
@@ -633,6 +643,7 @@ chmScheme t = do
     (types', _, classes) = filterClasses (types, head vCs, [])
   return $ quantify (Set.toList types') $ classes :=> t'
 
+-- | enters a new scope (c scope)
 enterScope :: Id -> TState ()
 enterScope id = do
   state@TransformMonad{nested = ns, lastScope = n} <- get
@@ -647,6 +658,7 @@ enterScope id = do
     , lastScope = n + 1
     }
 
+-- | leaves the currently parsed scope
 leaveScope :: TState ()
 leaveScope = do
   state@TransformMonad{nested = ns} <- get
@@ -654,7 +666,7 @@ leaveScope = do
     { nested = tail ns
     }
 
--- implicitly enters new scope
+-- | enters a new switch statement and implicitly enters a new scope
 enterSwitch :: TState ()
 enterSwitch = do
   enterScope ""
@@ -663,7 +675,7 @@ enterSwitch = do
     { switchScopes = (n + 1) : sScopes
     }
 
--- implicitly leaves current scope (+ should have the same relationship with enterSwitch as enter&leaveScope have)
+-- | leaves the current switch statement block and implicitly leaves the current scope
 leaveSwitch :: TState ()
 leaveSwitch = do
   leaveScope
@@ -672,7 +684,7 @@ leaveSwitch = do
     { switchScopes = tail sScopes
     }
 
--- implicitly enters new scope
+-- | enters a new function and implicitly enters a new scope
 enterFunction :: Id -> TState ()
 enterFunction id = do
   enterScope id
@@ -681,7 +693,7 @@ enterFunction id = do
     { functionScopes = (id, []) : fScopes
     }
 
--- implicitly leaves current scope (+ should have the same relationship with enterFunction as enter&leaveScope have)
+-- | leaves the current function and implicitly leaves the current scope
 leaveFunction :: TState ()
 leaveFunction = do
   leaveScope
@@ -690,6 +702,7 @@ leaveFunction = do
     { functionScopes = tail fScopes
     }
 
+-- | adds a new return expression of the currently parsed function
 addFunctionReturn :: ReturnExpr -> TState ()
 addFunctionReturn fReturn = do
   state@TransformMonad{functionScopes = fScopes} <- get
@@ -700,14 +713,17 @@ addFunctionReturn fReturn = do
         functionScopes = (id, fReturn : fReturns) : rest
       }
 
+-- | gets all stored return expressions of the currently parsed function
 getFunctionReturns :: TState [ReturnExpr]
 getFunctionReturns = do
   TransformMonad{functionScopes = fScopes} <- get
   return . snd . head $ fScopes
 
+-- | creates the simplest kind of type constructor that can take n types
 takeNKind :: Int -> Kind
 takeNKind n = last $ take (n + 1) $ iterate (Kfun Star) Star
 
+-- | returns the tuple type constructor of the specified number of types
 getTupleOp :: Int -> Type
 getTupleOp n =
   TCon
@@ -716,12 +732,16 @@ getTupleOp n =
         (takeNKind n)
     )
 
+-- | transforms a list of types to a tuple (see 'getTupleOp')
 tupledTypes :: [Type] -> Type
 tupledTypes ts = foldl TAp (getTupleOp . length $ ts) ts
 
+-- | returns a function that takes the specified 'Type's
+-- and returns a tuple of them (see 'tupleTypes')
 tupleize :: [Type] -> Type
 tupleize ts = foldr fn (tupledTypes ts) ts
 
+-- | returns the 'Scheme' of a tuple constructor that takes 'Int' 'Type's
 getTupleCon :: Int -> Scheme
 getTupleCon n =
   let
@@ -729,6 +749,8 @@ getTupleCon n =
   in
     quantify as ([] :=> tupleize (TVar <$> as))
 
+-- | returns a function that creates a tuple of 'Int' variables
+-- creates it if called for the first time
 getTuple :: Int -> TState Id
 getTuple n = do
   state@TransformMonad{tuples = ts, builtIns = bIs} <- get
@@ -743,11 +765,12 @@ getTuple n = do
     return translate
   where translate = "@make_tuple" ++ show n
 
+-- | creates a new name for the type class of the gettter/setter of the member field
 memberClassName :: Id -> Id
 memberClassName id = "Has_" ++ id
 
--- This has to be named so that it cannot collide with
--- other functions
+-- | This has to be named so that it cannot collide with
+-- other user-defined functions
 memberGetterName :: Id -> Id
 memberGetterName id = ".get:" ++ id
 
@@ -789,6 +812,7 @@ registerMember sId mId t = do
       , createdClasses = mId `Set.insert` cs
       }
 
+-- | creates a getter/setter for a given member field of a struct with a specified type
 registerCHMMember :: Id -> Id -> Type -> TState ()
 registerCHMMember sId mId t = do
   state@TransformMonad
@@ -824,7 +848,7 @@ registerCHMMember sId mId t = do
       , createdClasses = mId `Set.insert` cs
       }
 
--- | Makes a new entry for the given struct in the transform monad
+-- | Makes a new entry for the given struct in the 'TransformMonad'
 registerStruct :: Id -> TState Bool
 registerStruct id = do
   state@TransformMonad{registeredStructs=rSs} <- get
@@ -834,7 +858,7 @@ registerStruct id = do
     put state{registeredStructs=id `Set.insert` rSs}
     return True
 
--- | Makes a new entry in the class environment and in the transform monad
+-- | Makes a new entry in the class environment and in the 'TransformMonad'
 registerClass :: Id -> TState Bool
 registerClass id = do
   state@TransformMonad
