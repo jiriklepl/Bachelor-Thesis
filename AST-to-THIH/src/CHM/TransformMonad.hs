@@ -484,14 +484,17 @@ initTransformMonad = TransformMonad
       ]
   }
 
+-- | Renames a variable's name depending on which scope we are currently parsing
 renameScoped :: Scope -> Id -> Id
 renameScoped Scope{scopeName = name, scopeId = n} id = name ++ show n ++ ':' : id
 
+-- | Gets the name of the current switch statement
 getSwitchName :: TState Id
 getSwitchName = do
   TransformMonad{switchScopes = sScopes} <- get
   return $ "@Switch" ++ (show . head) sScopes
 
+-- | Gets the name of the current function
 getFunctionName :: TState Id
 getFunctionName = do
   TransformMonad{functionScopes = fScopes} <- get
@@ -581,9 +584,7 @@ leaveCHMHead = do
     , typeAliases = tail tAs
     }
 
--- filterTypes takes a 'type' and a set of 'unfiltered' and return 'filtered'
--- which contains the types from the 'unfiltered' set that contribute
--- towards the 'type'
+-- | Takes a 'Type' and then -- TODO: god I am tired for this
 filterTypes :: Type -> (Set.Set Tyvar, Set.Set Id) -> (Set.Set Tyvar, Set.Set Id)
 filterTypes t accumulator@(tSet, idSet)
   | idSet == Set.empty = accumulator
@@ -594,6 +595,7 @@ filterTypes t accumulator@(tSet, idSet)
       else accumulator
     _ -> accumulator
 
+-- | Returns whether the given Type depends on any of the given type variables
 depends :: Type -> Set.Set Tyvar -> Bool
 depends (TVar t@(Tyvar id _)) ts = t `Set.member` ts
 depends (TAp t1 t2) ts
@@ -616,7 +618,7 @@ filterClasses acc@(tVars, preds, outPreds) =
       let tVars' = foldr ($) tVars [addTypesFromType t | IsIn _ t <- preds']
       in filterClasses (tVars', preds'', preds' ++ outPreds)
 
--- | replaces aliases created in the last chm head by real type variables
+-- | Replaces aliases created in the last chm head by real type variables
 replaceAliases :: Type -> TState Type
 replaceAliases t@(TVar (Tyvar id kind)) = do
   TransformMonad{typeAliases = tAs} <- get
@@ -630,7 +632,7 @@ replaceAliases (TAp t1 t2) = do
 -- for TGen(?) and mainly TCon
 replaceAliases t = return t
 
--- | replaces type annotations with generic types and constraints (see 'quantify')
+-- | Replaces type annotations with generic types and constraints (see 'quantify')
 chmScheme :: Type -> TState Scheme
 chmScheme t = do
   state@TransformMonad
@@ -644,7 +646,7 @@ chmScheme t = do
     (types', _, classes) = filterClasses (types, head vCs, [])
   return $ quantify (Set.toList types') $ classes :=> t'
 
--- | enters a new scope (c scope)
+-- | Enters a new 'Scope' (c scope)
 enterScope :: Id -> TState ()
 enterScope id = do
   state@TransformMonad{nested = ns, lastScope = n} <- get
@@ -659,7 +661,7 @@ enterScope id = do
     , lastScope = n + 1
     }
 
--- | leaves the currently parsed scope
+-- | Leaves the currently parsed 'Scope'
 leaveScope :: TState ()
 leaveScope = do
   state@TransformMonad{nested = ns} <- get
@@ -667,7 +669,7 @@ leaveScope = do
     { nested = tail ns
     }
 
--- | enters a new switch statement and implicitly enters a new scope
+-- | Enters a new switch statement and implicitly enters a new 'Scope'
 enterSwitch :: TState ()
 enterSwitch = do
   enterScope ""
@@ -676,7 +678,7 @@ enterSwitch = do
     { switchScopes = (n + 1) : sScopes
     }
 
--- | leaves the current switch statement block and implicitly leaves the current scope
+-- | Leaves the current switch statement block and implicitly leaves the current 'Scope'
 leaveSwitch :: TState ()
 leaveSwitch = do
   leaveScope
@@ -685,7 +687,7 @@ leaveSwitch = do
     { switchScopes = tail sScopes
     }
 
--- | enters a new function and implicitly enters a new scope
+-- | Enters a new function and implicitly enters a new 'Scope'
 enterFunction :: Id -> TState ()
 enterFunction id = do
   enterScope id
@@ -694,7 +696,7 @@ enterFunction id = do
     { functionScopes = (id, []) : fScopes
     }
 
--- | leaves the current function and implicitly leaves the current scope
+-- | Leaves the current function and implicitly leaves the current 'Scope'
 leaveFunction :: TState ()
 leaveFunction = do
   leaveScope
@@ -703,7 +705,7 @@ leaveFunction = do
     { functionScopes = tail fScopes
     }
 
--- | adds a new return expression of the currently parsed function
+-- | Adds a new return expression of the currently parsed function
 addFunctionReturn :: ReturnExpr -> TState ()
 addFunctionReturn fReturn = do
   state@TransformMonad{functionScopes = fScopes} <- get
@@ -714,17 +716,17 @@ addFunctionReturn fReturn = do
         functionScopes = (id, fReturn : fReturns) : rest
       }
 
--- | gets all stored return expressions of the currently parsed function
+-- | Gets all stored return expressions of the currently parsed function
 getFunctionReturns :: TState [ReturnExpr]
 getFunctionReturns = do
   TransformMonad{functionScopes = fScopes} <- get
   return . snd . head $ fScopes
 
--- | creates the simplest kind of type constructor that can take n types
+-- | Creates the simplest kind of type constructor that can take n types
 takeNKind :: Int -> Kind
 takeNKind n = last $ take (n + 1) $ iterate (Kfun Star) Star
 
--- | returns the tuple type constructor of the specified number of types
+-- | Returns the tuple type constructor of the specified number of types
 getTupleOp :: Int -> Type
 getTupleOp n =
   TCon
@@ -733,16 +735,16 @@ getTupleOp n =
         (takeNKind n)
     )
 
--- | transforms a list of types to a tuple (see 'getTupleOp')
+-- | Transforms a list of types to a tuple (see 'getTupleOp')
 tupledTypes :: [Type] -> Type
 tupledTypes ts = foldl TAp (getTupleOp . length $ ts) ts
 
--- | returns a function that takes the specified 'Type's
+-- | Returns a function that takes the specified 'Type's
 -- and returns a tuple of them (see 'tupleTypes')
 tupleize :: [Type] -> Type
 tupleize ts = foldr fn (tupledTypes ts) ts
 
--- | returns the 'Scheme' of a tuple constructor that takes 'Int' 'Type's
+-- | Returns the 'Scheme' of a tuple constructor that takes 'Int' 'Type's
 getTupleCon :: Int -> Scheme
 getTupleCon n =
   let
@@ -750,7 +752,7 @@ getTupleCon n =
   in
     quantify as ([] :=> tupleize (TVar <$> as))
 
--- | returns a function that creates a tuple of 'Int' variables
+-- | Returns a function that creates a tuple of 'Int' variables
 -- creates it if called for the first time
 getTuple :: Int -> TState Id
 getTuple n = do
@@ -766,7 +768,7 @@ getTuple n = do
     return translate
   where translate = "@make_tuple" ++ show n
 
--- | creates a new name for the type class of the getter/setter of the member field
+-- | Creates a new name for the type class of the getter/setter of the member field
 memberClassName :: Id -> Id
 memberClassName id = "Has_" ++ id
 
