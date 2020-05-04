@@ -3,7 +3,7 @@ module CHM.TransformMonad
   , Method(..)
   , TransformMonad(..)
   , TState
-  , get, put
+  , initTransformMonad
   , getClassMethods
   , tPointer
   , tConst
@@ -100,6 +100,7 @@ import qualified Data.Set as Set
 import qualified Data.Map as Map
 
 import TypingHaskellInHaskell
+
 import Language.C.Data
 import Language.C.Syntax
 import Language.C.Data.Ident (Ident(..))

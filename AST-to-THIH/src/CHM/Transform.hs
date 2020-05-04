@@ -1,10 +1,20 @@
 {-# LANGUAGE FlexibleInstances, FlexibleContexts #-}
-module CHM.Transform where
+module CHM.Transform
+  ( Transform (..)
+  , TState
+  , TransformMonad (..)
+  , runInfer
+  , initTransformMonad
+  , getTransformResult
+  , typeInfer
+  ) where
 
+import Control.Monad.State
 import Control.Monad((>=>), when)
 import qualified Data.Set as Set
 
 import TypingHaskellInHaskell
+
 import Language.C.Data
 import Language.C.Syntax
 import Language.C.Data.Ident (Ident(..))
@@ -17,15 +27,23 @@ class Transform a where
 getTransformResult :: Transform a => a -> Program
 getTransformResult = fst . runTState . transform
 
-typeInfer :: Transform a => a -> [Assump]
-typeInfer a =
+typeInfer :: Transform a => [Assump] -> a -> TState [Assump]
+typeInfer assumps a = do
+  program <- transform a
+  TransformMonad{builtIns = bIs, memberClasses = mCs}  <- get
+  case mCs initialEnv of
+    Nothing -> return $ error "Environment corrupted"
+    Just cEnv -> return $ tiProgram cEnv (Set.toList bIs ++ assumps) program
+
+runInfer :: Transform a => a -> [Assump]
+runInfer a =
   let
-    (program, TransformMonad{memberClasses=mcs, builtIns=bis}) =
+    (program, TransformMonad{memberClasses=mCs, builtIns=bIs}) =
       runTState . transform $ a
   in
-    case mcs initialEnv of
+    case mCs initialEnv of
       Nothing -> ["@programEnvironment" :>: toScheme tError]  -- TODO: but I like it like it is
-      Just env -> tiProgram env (Set.toList bis) program
+      Just env -> tiProgram env (Set.toList bIs) program
 
 -- | Takes a `Program` and flattens it into a `BindGroup`
 flattenProgram :: Program -> BindGroup
@@ -246,7 +264,6 @@ registerCHMStructMembers id cDecls = do
         _ -> return ()
   when registered $ sequence_ (registerSingleCDecl <$> cDecls)
 
-
 instance Transform CTranslUnit where
   transform (CTranslUnit [] _) = return []
   transform (CTranslUnit extDecls a) = concat <$> traverse transform extDecls
@@ -260,7 +277,7 @@ instance Transform CExtDecl where
   transform  (CHMIDefExt a) = transform a
   transform  (CAsmExt  a _) = transform a
 
--- these are better than the corresponding foldl because of the stronger type safety
+-- these are better than the equivalent 'foldl Ap' because of the stronger type safety
 ap2 :: Expr -> Expr -> Expr -> Expr
 ap3 :: Expr -> Expr -> Expr -> Expr -> Expr
 
@@ -682,7 +699,6 @@ defineInstanceContents id (CHMParams chmTypes _) cExtDecls = do
 instance Transform CHMIDef where
   transform (CHMIDef id chmPars cExtDecls nInfo) =
     transform (CHMIDefHead id (CHMHead [] [] nInfo) chmPars cExtDecls nInfo)
-
   transform (CHMIDefHead (Ident iId _ _) chmHead chmPars cExtDecls _) = do
     enterCHMHead
     transHead <- transform chmHead
