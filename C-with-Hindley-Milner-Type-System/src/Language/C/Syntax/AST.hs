@@ -96,7 +96,7 @@ data CExternalDeclaration a
   | CHMFDefExt (CHMFunctionDef a)  -- CHM addition
   | CHMSDefExt (CHMStructureDef a) -- CHM addition
   | CHMCDefExt (CHMClassDef a)     -- CHM addition
-  | CHMIDefExt (CHMInstanceDef a) -- CHM addition
+  | CHMIDefExt (CHMInstanceDef a)  -- CHM addition
   | CAsmExt  (CStringLiteral a) a
     deriving (Show, Data,Typeable, Generic, Generic1 {-! ,CNode ,Functor, Annotated !-})
 
