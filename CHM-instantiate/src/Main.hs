@@ -24,7 +24,7 @@ printAST :: CTranslUnit -> IO ()
 printAST = print
 
 typeAST :: CTranslUnit -> IO ()
-typeAST = print . typeInfer
+typeAST = print . runInfer
 
 transformAST :: CTranslUnit -> IO ()
 transformAST = print . getTransformResult
