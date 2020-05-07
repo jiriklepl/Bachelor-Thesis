@@ -22,8 +22,13 @@ magic a@(CHMFDefExt _) = do
   state@InstantiateMonad{polyTypes = pTs} <- get
   put state{polyTypes = Map.insert name (PolyType a Set.empty) pTs}
   return []
+magic a@(CHMSDefExt _) = do
+  _ <- parse a
+  return []
 magic a@(CDeclExt _) = return [a]
-magic a@(CFDefExt _) = return [a]
+magic a@(CFDefExt _) = do
+  syncScopes
+  a' <- parse a
 
 instantiate :: CTranslUnit -> IState CTranslUnit
 instantiate a@(CTranslUnit cExtDecls _) = return a

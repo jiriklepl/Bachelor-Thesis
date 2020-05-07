@@ -65,7 +65,7 @@ reverseExpls (expls, impls) = (reverse expls, impls)
 -}
 reassemble :: BindGroup -> TState BindGroup
 reassemble bindGroup@([(name,scheme,[(pats, Let (expls, impls) returnValue)])], []) = case expls of
-  (eName, eScheme, [([],expr)]) : rest ->
+  (eName, eScheme, [([],expr)]) : rest -> do
     let
       eScheme' = case (scheme, eScheme) of
         (Forall [] ([] :=> t1), Forall [] ([] :=> t2)) ->
@@ -79,10 +79,9 @@ reassemble bindGroup@([(name,scheme,[(pats, Let (expls, impls) returnValue)])], 
         tuple <- Var <$> getTuple (length pats')
         constrPars <- transformPars pats'
         return $ foldl Ap tuple constrPars : others
-    in do
-      bindGroup' <- reassemble ([("TODO_" ++ eName, eScheme', [(PVar eName : pats, Let (rest, impls) returnValue)])], [])
-      others <- transformPars pats
-      return ([(name,scheme,[(pats, Let bindGroup' $ foldl Ap (Var ("TODO_" ++ eName)) (expr : others))])], [])
+    bindGroup' <- reassemble ([("TODO_" ++ eName, eScheme', [(PVar eName : pats, Let (rest, impls) returnValue)])], [])
+    others <- transformPars pats
+    return ([(name,scheme,[(pats, Let bindGroup' $ foldl Ap (Var ("TODO_" ++ eName)) (expr : others))])], [])
   _ -> return bindGroup
 
 -- | This goes through the structure and replaces temporary types with generics
@@ -173,7 +172,7 @@ translateDeclSpecs (decl:decls) = case decl of
 
 translateDerivedDecl :: Type -> [CDerivedDeclr] -> TState Type
 translateDerivedDecl t [] = return t
-translateDerivedDecl t (dDecl:dDecls) =
+translateDerivedDecl t (dDecl:dDecls) = do
   let
     translateQuals s (typeQual:tDecls) = case typeQual of
       (CConstQual _) -> toConst $ translateQuals s tDecls
@@ -190,28 +189,21 @@ translateDerivedDecl t (dDecl:dDecls) =
     extractDecls (CDecl declSpecs [(Nothing, _, _)] _) = (declSpecs, [])
     extractDecls (CDecl declSpecs [(Just (CDeclr _ derived _ _ _), _, _)] _) =
       (declSpecs, derived)
-  in do
-    t' <- translateDerivedDecl t dDecls
-    case dDecl of
-      CPtrDeclr typeQuals _ -> return $ translateQuals (pointer t') typeQuals
-      CArrDeclr typeQuals _ _ -> return $ translateQuals (pointer t') typeQuals  -- TODO: this is just temporary
-      -- old-style functions
-      CFunDeclr (Left _) _ _ -> return tError  -- TODO
-      -- new-style functions (non-variadic)
-      CFunDeclr (Right (rawDecls, False)) _ _ ->
-        let
-          decls = (extractDecls <$> rawDecls)
-          translatesDerivedDecl (decl:otherDecls) = do
-            pureType <- translateDeclSpecs $ fst decl
-            transFirst <- translateDerivedDecl pureType (snd decl)
-            transRest <- translatesDerivedDecl otherDecls
-            return $ transFirst : transRest
-          translatesDerivedDecl [] = return []
-        in do
-          types <- translatesDerivedDecl decls
-          return $ foldl TAp (getTupleOp $ length types) types `fn` t'
-      -- new-style functions (variadic)
-      CFunDeclr (Right (decls, True)) _ _ -> return tError  -- TODO
+  t' <- translateDerivedDecl t dDecls
+  case dDecl of
+    CPtrDeclr typeQuals _ -> return $ translateQuals (pointer t') typeQuals
+    CArrDeclr typeQuals _ _ -> return $ translateQuals (pointer t') typeQuals  -- TODO: this is just temporary
+    -- old-style functions
+    CFunDeclr (Left _) _ _ -> return tError  -- TODO
+    -- new-style functions (non-variadic)
+    CFunDeclr (Right (rawDecls, False)) _ _ -> do
+      types <- sequenceA
+        [ translateDeclSpecs specs >>= flip translateDerivedDecl derived
+        | (specs, derived) <- extractDecls <$> rawDecls
+        ]
+      return $ foldl TAp (getTupleOp $ length types) types `fn` t'
+    -- new-style functions (variadic)
+    CFunDeclr (Right (decls, True)) _ _ -> return tError  -- TODO
 
 extractParameters :: [CDecl] -> TState Program
 extractParameters (decl:decls) = case decl of
@@ -393,8 +385,13 @@ instance Transform CExpr where
     return [([],[[("@Expr" ++ show anonNumber, [([],expr)])]])]  -- TODO
 
 instance Transform CFunDef where  -- TODO: make this and CHMFunDef use same bits of code, also: make this work
-  transform funDef@(CFunDef specs _ _ _ a) =
-    transform (CHMFunDef (CHMHead [] [] a) funDef a)
+  transform funDef@(CFunDef _ (CDeclr (Just (Ident sId _ _)) _ _ _ _) _ _ _) = do
+    storeName sId
+    name <- scopedName sId
+    enterFunction sId
+    rtrn <- (transformFunDef funDef name >>= chmSchemize)
+    leaveFunction
+    return [rtrn]
 
 instance Transform CDecl where  -- TODO
   transform (CDecl specs declrs a) = do
@@ -421,8 +418,8 @@ instance Transform CStrLit where
     anonNumber <- getNextAnon
     return [([],[[("@CString" ++ show anonNumber, [([],Lit $ LitStr s)])]])]  -- TODO
 
-instance Transform CHMFunDef where
-  transform (CHMFunDef chmHead (CFunDef specs (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _) decls stmt _) _) =  -- TODO
+transformFunDef :: CFunDef -> Id -> TState BindGroup
+transformFunDef (CFunDef specs (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _) decls stmt _) name = do -- TODO
     let
       extractPars (parDecl:parDecls) =
         case parDecl of
@@ -434,8 +431,8 @@ instance Transform CHMFunDef where
             (("@TODO" ++ show anonNumber):) <$> extractPars parDecls
           CDecl declSpecs [(Just (CDeclr (Just (Ident parId _ _)) derived _ _ _), _, _)] _ -> do
             storeName parId
-            name <- scopedName parId
-            (name:) <$> extractPars parDecls
+            pName <- scopedName parId
+            (pName:) <$> extractPars parDecls
       extractPars [] = return []
       splitType fType = return $ case fType of
         (TAp (TAp arrowType parsTuple) rType) ->
@@ -454,44 +451,47 @@ instance Transform CHMFunDef where
         _ ->
           return []  -- TODO
       changeResult (TAp p r) to = TAp p to
-    in do
-      storeName sId
-      name <- scopedName sId
-      enterFunction sId
-      enterCHMHead
-      transHead <- transform chmHead
-      pureType <- translateDeclSpecs specs
-      fType <- translateDerivedDecl pureType derivedDecls
-      (parsType, retType) <- splitType fType
-      storeName "@Params"
-      paramsName <- scopedName "@Params"
-      storeName "@Return"
-      returnName <- scopedName "@Return"
-      parIds <- typeSignatures
-      transStmt <- transform stmt
-      returns <- getFunctionReturns
-      rtrn <- pure <$> (reassemble ( reverseExpls
-        ( [ ( name
-            , if retType == tError then toScheme tError else toScheme fType
-            , [ ( [ PCon
-                      (paramsName :>: getTupleCon (length parIds))
-                      (PVar <$> parIds)
-                  ]
-                , Let
-                    (flattenProgram transStmt)
-                    $ foldl -- TODO: here we can do warning if retType is not tVoid and there is nothing to actually return
-                      (\ a b -> Var returnFunc `Ap` a `Ap` b)
-                      (Const $ returnName :>: toScheme retType)
-                      returns
-                )
-              ]
-            )
-          ]
-        , []
-        )) >>= chmSchemize)
-      leaveCHMHead
-      leaveFunction
-      return rtrn
+    pureType <- translateDeclSpecs specs
+    fType <- translateDerivedDecl pureType derivedDecls
+    (parsType, retType) <- splitType fType
+    storeName "@Params"
+    paramsName <- scopedName "@Params"
+    storeName "@Return"
+    returnName <- scopedName "@Return"
+    parIds <- typeSignatures
+    transStmt <- transform stmt
+    returns <- getFunctionReturns
+    reassemble . reverseExpls $
+      ( [ ( name
+          , if retType == tError then toScheme tError else toScheme fType
+          , [ ( [ PCon
+                    (paramsName :>: getTupleCon (length parIds))
+                    (PVar <$> parIds)
+                ]
+              , Let
+                  (flattenProgram transStmt)
+                  $ foldl -- TODO: here we can do warning if retType is not tVoid and there is nothing to actually return
+                    (\ a b -> Var returnFunc `Ap` a `Ap` b)
+                    (Const $ returnName :>: toScheme retType)
+                    returns
+              )
+            ]
+          )
+        ]
+      , []
+      )
+
+instance Transform CHMFunDef where
+  transform (CHMFunDef chmHead funDef@(CFunDef _ (CDeclr (Just (Ident sId _ _)) _ _ _ _) _ _ _) _) = do
+    storeName sId
+    name <- scopedName sId
+    enterFunction sId
+    enterCHMHead
+    transHead <- transform chmHead
+    rtrn <- (transformFunDef funDef name >>= chmSchemize)
+    leaveCHMHead
+    leaveFunction
+    return [rtrn]
 
 instance Transform CStat where
   transform cStat = case cStat of

@@ -17,6 +17,7 @@ data PolyType = PolyType CExtDecl (Set.Set Id)
 data InstantiateMonad = InstantiateMonad
   { parsedAssumps :: [Assump]
   , transformState :: TransformMonad
+  , lastScopeCopy :: Int
   , polyTypes :: Map.Map Id PolyType
   }
 
@@ -24,8 +25,14 @@ initInstantiateMonad :: InstantiateMonad
 initInstantiateMonad = InstantiateMonad
   { parsedAssumps = []
   , transformState = initTransformMonad
+  , lastScopeCopy = 0
   , polyTypes = Map.empty
   }
+
+syncScopes :: IState ()
+syncScopes = do
+  state@InstantiateMonad{lastScopeCopy = lS, transformState = tS} <- get
+  put state {lastScopeCopy = lastScope tS}
 
 parse :: Transform a => a -> IState [Assump]
 parse a = do
