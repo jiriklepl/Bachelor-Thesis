@@ -18,7 +18,7 @@ import CHM.InstantiateMonad
 magic :: CExtDecl -> IState [CExtDecl]
 magic a@(CHMFDefExt _) = do
   a' <- parse a
-  let [name :>: _] = a'
+  let (name :>: _ : _) = a'
   state@InstantiateMonad{polyTypes = pTs} <- get
   put state{polyTypes = Map.insert name (PolyType a Set.empty) pTs}
   return []
@@ -28,7 +28,9 @@ magic a@(CHMSDefExt _) = do
 magic a@(CDeclExt _) = return [a]
 magic a@(CFDefExt _) = do
   syncScopes
+  state <- get
   a' <- parse a
+  return [a]
 
 instantiate :: CTranslUnit -> IState CTranslUnit
 instantiate a@(CTranslUnit cExtDecls _) = return a

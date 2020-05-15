@@ -64,7 +64,7 @@ reverseExpls (expls, impls) = (reverse expls, impls)
   TODO: I should describe this and also check its validity
 -}
 reassemble :: BindGroup -> TState BindGroup
-reassemble bindGroup@([(name,scheme,[(pats, Let (expls, impls) returnValue)])], []) = case expls of
+reassemble bindGroup@([(name, scheme, [(pats, Let (expls, impls) returnValue)])], []) = case expls of
   (eName, eScheme, [([],expr)]) : rest -> do
     let
       eScheme' = case (scheme, eScheme) of
@@ -79,9 +79,13 @@ reassemble bindGroup@([(name,scheme,[(pats, Let (expls, impls) returnValue)])], 
         tuple <- Var <$> getTuple (length pats')
         constrPars <- transformPars pats'
         return $ foldl Ap tuple constrPars : others
-    bindGroup' <- reassemble ([("TODO_" ++ eName, eScheme', [(PVar eName : pats, Let (rest, impls) returnValue)])], [])
+      innerName = "@INNER_" ++ eName
+    bindGroup' <- reassemble ([(innerName, eScheme', [(PVar eName : pats, Let (rest, impls) returnValue)])], [])
     others <- transformPars pats
-    return ([(name,scheme,[(pats, Let bindGroup' $ foldl Ap (Var ("TODO_" ++ eName)) (expr : others))])], [])
+    return . flattenProgram $ [([(name, scheme, [(pats, foldl Ap (Var innerName) (expr : others))])], []), bindGroup']
+  [] -> case impls of
+    [] -> return ([(name, scheme, [(pats, returnValue)])], [])
+    _ -> return bindGroup
   _ -> return bindGroup
 
 -- | This goes through the structure and replaces temporary types with generics
@@ -214,8 +218,7 @@ extractParameters (decl:decls) = case decl of
     CDecl declSpecs [(Just (CDeclr Nothing derived _ _ _), _, _)] _ ->
       extractParameters decls
     CDecl declSpecs [(Just (CDeclr (Just (Ident sId _ _)) derived _ _ _), _, _)] _ -> do
-      storeName sId
-      name <- scopedName sId
+      name <- sgName sId
       others <- extractParameters decls
       pureType <- translateDeclSpecs declSpecs
       expandedType <- translateDerivedDecl pureType derived
@@ -283,7 +286,7 @@ transformExpr cExpr = let
   CComma exprs _ -> do
     transs <- traverse transformExpr exprs
     return $ foldl1
-      (\a b -> Ap (Ap (Var commaOpFunc) a) b)
+      (Ap . Ap (Var commaOpFunc))
       transs
   CAssign op lExpr rExpr _ -> do
     lTrans <- transformExpr lExpr
@@ -380,16 +383,15 @@ transformExpr cExpr = let
 instance Transform CExpr where
   -- the top-most binding should be first recursively (in comparison that would be the binding of ==, then operands and then their child bindings)
   transform cExpr = do
-    anonNumber <- getNextAnon
+    anonName <- appendNextAnon "@Expr"
     expr <- transformExpr cExpr
-    return [([],[[("@Expr" ++ show anonNumber, [([],expr)])]])]  -- TODO
+    return [([],[[(anonName, [([],expr)])]])]  -- TODO
 
-instance Transform CFunDef where  -- TODO: make this and CHMFunDef use same bits of code, also: make this work
+instance Transform CFunDef where
   transform funDef@(CFunDef _ (CDeclr (Just (Ident sId _ _)) _ _ _ _) _ _ _) = do
-    storeName sId
-    name <- scopedName sId
+    name <- sgName sId
     enterFunction sId
-    rtrn <- (transformFunDef funDef name >>= chmSchemize)
+    rtrn <- transformFunDef funDef name >>= chmSchemize
     leaveFunction
     return [rtrn]
 
@@ -398,14 +400,12 @@ instance Transform CDecl where  -- TODO
     pureType <- translateDeclSpecs specs
     case declrs of  -- TODO
       (Just (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _), Nothing, Nothing):rest -> do
-        storeName sId
-        name <- scopedName sId
+        name <- sgName sId
         transType <- translateDerivedDecl pureType derivedDecls
         restTrans <- transform (CDecl specs rest a)
         return $ ([(name, toScheme transType, [])], []) : restTrans
       (Just (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _), Just (CInitExpr cExpr _), Nothing):rest -> do
-        storeName sId
-        name <- scopedName sId
+        name <- sgName sId
         transType <- translateDerivedDecl pureType derivedDecls
         transExpr <- transformExpr cExpr
         restTrans <- transform (CDecl specs rest a)
@@ -415,8 +415,8 @@ instance Transform CDecl where  -- TODO
 
 instance Transform CStrLit where
   transform (CStrLit (CString s _) _) = do
-    anonNumber <- getNextAnon
-    return [([],[[("@CString" ++ show anonNumber, [([],Lit $ LitStr s)])]])]  -- TODO
+    anonName <- appendNextAnon "@CString"
+    return [([],[[(anonName, [([],Lit $ LitStr s)])]])]  -- TODO
 
 transformFunDef :: CFunDef -> Id -> TState BindGroup
 transformFunDef (CFunDef specs (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _) decls stmt _) name = do -- TODO
@@ -424,14 +424,13 @@ transformFunDef (CFunDef specs (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _
       extractPars (parDecl:parDecls) =
         case parDecl of
           CDecl declSpecs [(Nothing, _, _)] _ -> do
-            anonNumber <- getNextAnon
-            (("@TODO" ++ show anonNumber):) <$> extractPars parDecls
+            anonName <- appendNextAnon "@TODO"
+            (anonName:) <$> extractPars parDecls
           CDecl declSpecs [(Just (CDeclr Nothing derived _ _ _), _, _)] _ -> do
-            anonNumber <- getNextAnon
-            (("@TODO" ++ show anonNumber):) <$> extractPars parDecls
+            anonName <- appendNextAnon "@TODO"
+            (anonName:) <$> extractPars parDecls
           CDecl declSpecs [(Just (CDeclr (Just (Ident parId _ _)) derived _ _ _), _, _)] _ -> do
-            storeName parId
-            pName <- scopedName parId
+            pName <- sgName parId
             (pName:) <$> extractPars parDecls
       extractPars [] = return []
       splitType fType = return $ case fType of
@@ -454,10 +453,8 @@ transformFunDef (CFunDef specs (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _
     pureType <- translateDeclSpecs specs
     fType <- translateDerivedDecl pureType derivedDecls
     (parsType, retType) <- splitType fType
-    storeName "@Params"
-    paramsName <- scopedName "@Params"
-    storeName "@Return"
-    returnName <- scopedName "@Return"
+    paramsName <- sgName "@Params"
+    returnName <- sgName "@Return"
     parIds <- typeSignatures
     transStmt <- transform stmt
     returns <- getFunctionReturns
@@ -483,12 +480,11 @@ transformFunDef (CFunDef specs (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _
 
 instance Transform CHMFunDef where
   transform (CHMFunDef chmHead funDef@(CFunDef _ (CDeclr (Just (Ident sId _ _)) _ _ _ _) _ _ _) _) = do
-    storeName sId
-    name <- scopedName sId
+    name <- sgName sId
     enterFunction sId
     enterCHMHead
     transHead <- transform chmHead
-    rtrn <- (transformFunDef funDef name >>= chmSchemize)
+    rtrn <- transformFunDef funDef name >>= chmSchemize
     leaveCHMHead
     leaveFunction
     return [rtrn]
@@ -498,17 +494,17 @@ instance Transform CStat where
     CLabel _ stmt _ _ -> transform stmt
     CCase cExpr stmt _ -> do
       switchName <- getSwitchName
-      anonNumber <- getNextAnon
+      anonName <- appendNextAnon "@Case"
       transExpr <- transformExpr cExpr
       transStmt <- transform stmt
-      return $ ([],[[("@Case" ++ show anonNumber, [([],ap2 (Var caseFunc) (Var switchName) transExpr)])]]) : transStmt
+      return $ ([],[[(anonName, [([],ap2 (Var caseFunc) (Var switchName) transExpr)])]]) : transStmt
     CCases lExpr rExpr stmt _ -> do  -- TODO: add checking for range-ness
       switchName <- getSwitchName
-      anonNumber <- getNextAnon
+      anonName <- appendNextAnon "@Case"
       lTrans <- transformExpr lExpr
       rTrans <- transformExpr rExpr
       transStmt <- transform stmt
-      return $ ([],[[("@Case" ++ show anonNumber, [([],ap2 (Var caseFunc) (Var switchName) lTrans), ([],ap2 (Var caseFunc) (Var switchName) rTrans)])]]) : transStmt
+      return $ ([],[[(anonName, [([],ap2 (Var caseFunc) (Var switchName) lTrans), ([],ap2 (Var caseFunc) (Var switchName) rTrans)])]]) : transStmt
     CDefault stmt _ -> transform stmt
     CExpr (Just expr) _ -> transform expr
     CExpr Nothing _ -> return []
@@ -519,16 +515,16 @@ instance Transform CStat where
       leaveScope
       return transBlock
     CIf expr tStmt (Just fStmt) _ -> do
-      anonNumber <- getNextAnon
+      anonName <- appendNextAnon "@IfElse"
       transExpr <- transformExpr expr
       tTrans <- transform tStmt
       fTrans <- transform fStmt
-      return $ ([],[[("@IfElse" ++ show anonNumber, [([],transExpr)])]]) : (tTrans ++ fTrans)  -- TODO
+      return $ ([],[[(anonName, [([],transExpr)])]]) : (tTrans ++ fTrans)  -- TODO
     CIf expr tStmt Nothing _ -> do
-      anonNumber <- getNextAnon
+      anonName <- appendNextAnon "@If"
       transExpr <- transformExpr expr
       tTrans <- transform tStmt
-      return $ ([],[[("@If" ++ show anonNumber, [([],transExpr)])]]) : tTrans  -- TODO
+      return $ ([],[[(anonName, [([],transExpr)])]]) : tTrans  -- TODO
     CSwitch expr stmt _ -> do
       enterSwitch
       name <- getSwitchName
@@ -537,10 +533,10 @@ instance Transform CStat where
       leaveSwitch
       return $ ([],[[(name, [([],transExpr)])]]) : transStmt
     CWhile expr stmt _ _ -> do
-      anonNumber <- getNextAnon
+      anonName <- appendNextAnon "@While"
       transExpr <- transformExpr expr
       transStmt <- transform stmt
-      return $ ([],[[("@While" ++ show anonNumber, [([],transExpr)])]]) : transStmt  -- TODO
+      return $ ([],[[(anonName, [([],transExpr)])]]) : transStmt  -- TODO
     CFor _ _ _ a _ -> return []  -- TODO
     CGoto _ _ -> return []
     CGotoPtr _ _ -> return []  -- TODO
@@ -606,26 +602,17 @@ transformConstraint constr =
       return . Just . IsIn id $ createParamsType transTypes
     (CHMUnifyConstr (Ident id _ _) cType _) -> do
       transType <- translateCHMType cType
-      storeName id
-      scopedName id >>= flip chmAddAlias transType
+      sgName id >>= flip chmAddAlias transType
       return Nothing
 
 translateConstraints :: [CHMConstr] -> TState ()
-translateConstraints cs = sequence_
-  [ do
-    transC <- transformConstraint c
-    case transC of
-      Just x -> chmAddClass x
-      _ -> return ()
-  | c <- cs
-  ]
+translateConstraints = mapM_ (transformConstraint >=> mapM_ chmAddClass)
 
 instance Transform CHMHead where
   transform (CHMHead [] [] _) = return []
   transform (CHMHead types [] _) = sequence_
     [ do
-      storeName id
-      scopedId <- scopedName id
+      scopedId <- sgName id
       chmAddVariable $ Tyvar scopedId Star
     | Ident id _ _ <- types
     ] >> return []

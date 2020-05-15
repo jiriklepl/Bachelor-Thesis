@@ -60,7 +60,9 @@ module CHM.TransformMonad
   , findName
   , storeName
   , scopedName
+  , sgName
   , getNextAnon
+  , appendNextAnon
   , enterCHMHead
   , chmAddVariable
   , chmAddAlias
@@ -131,7 +133,7 @@ initMethod s = Method
   }
 
 data UserClass = UserClass
-  { methods :: (Map.Map Id Method)
+  { methods :: Map.Map Id Method
   }
 
 type MethodNamed = (Id, Method)
@@ -205,8 +207,8 @@ fst3 :: (a, b, c) -> a
 ref = Ap (Var refFunc)
 deref = Ap (Var derefFunc)
 pointer = TAp tPointer
-trio a b c = TAp (TAp (TAp tTuple3 a) b) c
-fst3 (a, b, c) = a
+trio = (TAp .) . TAp . TAp tTuple3
+fst3 (a, _, _) = a
 
 class OperatorFunction a where
   operatorFunction :: a -> Id
@@ -374,116 +376,111 @@ returnFunc    = "@return"
 caseFunc      = "@case"
 
 initTransformMonad :: TransformMonad
-initTransformMonad = TransformMonad
-  { tuples = Set.empty
-  , createdClasses = Set.empty
-  , nested = [initScope "global" 0]
-  , lastScope = 0
-  , registeredStructs = Set.empty
-  , switchScopes = []
-  , functionScopes = []
-  , anonymousCounter = 0
-  , userClasses = Map.empty
-  , typeVariables = []
-  , typeAliases = []
-  , variableClasses = []
-  , memberClasses =
-    let
-      aVar = Tyvar "a" Star
-      bVar = Tyvar "b" Star
-      aTVar = TVar aVar
-      bTVar = TVar bVar
-    -- all built-in classes (work in -- TODO)
-    in  addClass "Num" []
-    <:> addClass "Add" []
-    <:> addClass "Sub" []
-    <:> addClass "Mul" []
-    <:> addClass "Div" []
-    <:> addClass "Mod" []  -- TODO
-    <:> addClass "Eq" []
-    <:> addClass "Eq0" []  -- TODO, for types that can compare to zero (like pointers and integral types)
-    <:> addClass "LG" []
-    <:> addClass "BinOp" []
-    <:> addClass "LogOp" []
-    -- all built-in instances (work in -- TODO)
-    <:> addInst [] (IsIn "Num" tInt)
-    <:> addInst [] (IsIn "Add" tInt)
-    <:> addInst [] (IsIn "Add" (pair tFloat tFloat))
-    <:> addInst [] (IsIn "Add" (pair tDouble tDouble))
-    <:> addInst [] (IsIn "Add" (pair (pointer aTVar) (pointer bTVar)))
-    <:> addInst [] (IsIn "Sub" (pair tInt tInt))
-    <:> addInst [] (IsIn "Sub" (pair tFloat tFloat))
-    <:> addInst [] (IsIn "Sub" (pair tDouble tDouble))
-    <:> addInst [] (IsIn "Sub" (pair (pointer aTVar) (pointer bTVar)))
-    <:> addInst [] (IsIn "Mul" tInt)
-    <:> addInst [] (IsIn "Mul" (pair tFloat tFloat))
-    <:> addInst [] (IsIn "Mul" (pair tDouble tDouble))
-    <:> addInst [] (IsIn "Div" (pair tInt tInt))
-    <:> addInst [] (IsIn "Div" (pair tFloat tFloat))
-    <:> addInst [] (IsIn "Div" (pair tDouble tDouble))
-    <:> addInst [] (IsIn "Mod" (pair tInt tInt))
-    <:> addInst [] (IsIn "Eq"  (pair tInt tInt))
-    <:> addInst [] (IsIn "Eq"  (pair tFloat tFloat))
-    <:> addInst [] (IsIn "Eq"  (pair tDouble tDouble))
-    <:> addInst [] (IsIn "Eq"  (pair (pointer aTVar) (pointer bTVar)))
-    <:> addInst [] (IsIn "LG"  (pair tInt tInt))
-    <:> addInst [] (IsIn "LG"  (pair tFloat tFloat))
-    <:> addInst [] (IsIn "LG"  (pair tDouble tDouble))
-    <:> addInst [] (IsIn "LG"  (pair (pointer aTVar) (pointer bTVar)))
-    <:> addInst [] (IsIn "BinOp"  (pair tInt tInt))
-    <:> addInst [] (IsIn "BinOp"  (pair (pointer aTVar) (pointer bTVar)))
-  , builtIns =
-    let
-      -- type variables
-      aVar = Tyvar "a" Star
-      bVar = Tyvar "b" Star
-      -- variable types
-      aTVar = TVar aVar
-      bTVar = TVar bVar
-      -- functions of the form 'a -> a -> a'
-      aaaFuncWithClasses cs = quantify [aVar] (cs :=> (aTVar `fn` aTVar `fn` aTVar))
-      -- functions of the form '(a, a) -> a'
-      t2aaaFuncWithClasses cs = quantify [aVar] (cs :=> (tupledTypes [aTVar, aTVar] `fn` aTVar))
-      -- functions of the form 'a -> a -> Void'
-      aaVFuncWithClasses cs = quantify [aVar] (cs :=> (aTVar `fn` aTVar `fn` tVoid))
-      -- functions of the form '(a, a) -> Void'
-      t2aaVFuncWithClasses cs = quantify [aVar] (cs :=> (tupledTypes [aTVar, aTVar] `fn` tVoid))
-      -- functions of the form 'a -> b -> a'
-      abaFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (aTVar `fn` bTVar `fn` aTVar))
-      -- functions of the form '(a, b) -> a'
-      t2abaFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (tupledTypes [aTVar, bTVar] `fn` aTVar))
-      -- functions of the form 'a -> b -> Bool'
-      abBFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (aTVar `fn` bTVar `fn` tBool))
-      -- functions of the form '(a, b) -> Bool'
-      t2abBFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (tupledTypes [aTVar, bTVar] `fn` tBool))
-    in Set.fromList
-      [ addOpFunc :>: aaaFuncWithClasses [IsIn "Add" aTVar]  -- TODO: all arithmetics
-      , subOpFunc :>: abaFuncWithClasses [IsIn "Sub" (pair aTVar bTVar)]
-      , mulOpFunc :>: aaaFuncWithClasses [IsIn "Mul" aTVar]
-      , divOpFunc :>: abaFuncWithClasses [IsIn "Div" (pair aTVar bTVar)]
-      , modOpFunc :>: abaFuncWithClasses [IsIn "Mod" (pair aTVar bTVar)]
-      , assOpFunc :>: aaaFuncWithClasses []
-      , addAssOpFunc :>: abaFuncWithClasses [IsIn "Add" (pair aTVar bTVar)]
-      , subAssOpFunc :>: abaFuncWithClasses [IsIn "Sub" (pair aTVar bTVar)]
-      , mulAssOpFunc :>: abaFuncWithClasses [IsIn "Mul" (pair aTVar bTVar)]
-      , divAssOpFunc :>: abaFuncWithClasses [IsIn "Div" (pair aTVar bTVar)]
-      , modAssOpFunc :>: abaFuncWithClasses [IsIn "Mod" (pair aTVar bTVar)]
-      , eqOpFunc :>: abBFuncWithClasses [IsIn "Eq" (pair aTVar bTVar)]
-      , neqOpFunc :>: abBFuncWithClasses [IsIn "Eq" (pair aTVar bTVar)]
-      , ltOpFunc :>: abBFuncWithClasses [IsIn "LG" (pair aTVar bTVar)]
-      , gtOpFunc :>: abBFuncWithClasses [IsIn "LG" (pair aTVar bTVar)]
-      , leOpFunc :>: abBFuncWithClasses [IsIn "LG" (pair aTVar bTVar), IsIn "Eq" (pair aTVar bTVar)]
-      , geOpFunc :>: abBFuncWithClasses [IsIn "LG" (pair aTVar bTVar), IsIn "Eq" (pair aTVar bTVar)]
-      , commaOpFunc :>: quantify [aVar, bVar] ([] :=> (aTVar `fn` bTVar `fn` bTVar))
-      , ternaryOpFunc :>: quantify [aVar, bVar] ([] :=> (aTVar `fn` bTVar `fn` bTVar `fn` bTVar)) -- TODO: aTVar has to be 0 comparable
-      , elvisOpFunc :>: quantify [aVar, bVar] ([] :=> (aTVar `fn` bTVar `fn` bTVar)) -- TODO: aTVar has to be 0 comparable
-      , indexOpFunc :>: quantify [aVar, bVar] ([] :=> (pointer aTVar `fn` bTVar `fn` aTVar)) -- TODO: bTVar has to be integral
-      , refFunc :>: quantify [aVar] ([] :=> (aTVar `fn` pointer aTVar))
-      , derefFunc :>: quantify [aVar] ([] :=> (pointer aTVar `fn` aTVar))
-      , returnFunc :>: aaaFuncWithClasses []
-      , caseFunc :>: quantify [aVar] ([] :=> (aTVar `fn` aTVar `fn` tBool))
-      ]
-  }
+initTransformMonad =
+  let
+    aVar = Tyvar "a" Star
+    bVar = Tyvar "b" Star
+    aTVar = TVar aVar
+    bTVar = TVar bVar
+  in TransformMonad
+    { tuples = Set.empty
+    , createdClasses = Set.empty
+    , nested = [initScope "global" 0]
+    , lastScope = 0
+    , registeredStructs = Set.empty
+    , switchScopes = []
+    , functionScopes = []
+    , anonymousCounter = 0
+    , userClasses = Map.empty
+    , typeVariables = []
+    , typeAliases = []
+    , variableClasses = []
+    , memberClasses =
+      -- all built-in classes (work in -- TODO)
+      addClass "Num" []
+      <:> addClass "Add" []
+      <:> addClass "Sub" []
+      <:> addClass "Mul" []
+      <:> addClass "Div" []
+      <:> addClass "Mod" []  -- TODO
+      <:> addClass "Eq" []
+      <:> addClass "Eq0" []  -- TODO, for types that can compare to zero (like pointers and integral types)
+      <:> addClass "LG" []
+      <:> addClass "BinOp" []
+      <:> addClass "LogOp" []
+      -- all built-in instances (work in -- TODO)
+      <:> addInst [] (IsIn "Num" tInt)
+      <:> addInst [] (IsIn "Add" tInt)
+      <:> addInst [] (IsIn "Add" (pair tFloat tFloat))
+      <:> addInst [] (IsIn "Add" (pair tDouble tDouble))
+      <:> addInst [] (IsIn "Add" (pair (pointer aTVar) (pointer bTVar)))
+      <:> addInst [] (IsIn "Sub" (pair tInt tInt))
+      <:> addInst [] (IsIn "Sub" (pair tFloat tFloat))
+      <:> addInst [] (IsIn "Sub" (pair tDouble tDouble))
+      <:> addInst [] (IsIn "Sub" (pair (pointer aTVar) (pointer bTVar)))
+      <:> addInst [] (IsIn "Mul" tInt)
+      <:> addInst [] (IsIn "Mul" (pair tFloat tFloat))
+      <:> addInst [] (IsIn "Mul" (pair tDouble tDouble))
+      <:> addInst [] (IsIn "Div" (pair tInt tInt))
+      <:> addInst [] (IsIn "Div" (pair tFloat tFloat))
+      <:> addInst [] (IsIn "Div" (pair tDouble tDouble))
+      <:> addInst [] (IsIn "Mod" (pair tInt tInt))
+      <:> addInst [] (IsIn "Eq"  (pair tInt tInt))
+      <:> addInst [] (IsIn "Eq"  (pair tFloat tFloat))
+      <:> addInst [] (IsIn "Eq"  (pair tDouble tDouble))
+      <:> addInst [] (IsIn "Eq"  (pair (pointer aTVar) (pointer bTVar)))
+      <:> addInst [] (IsIn "LG"  (pair tInt tInt))
+      <:> addInst [] (IsIn "LG"  (pair tFloat tFloat))
+      <:> addInst [] (IsIn "LG"  (pair tDouble tDouble))
+      <:> addInst [] (IsIn "LG"  (pair (pointer aTVar) (pointer bTVar)))
+      <:> addInst [] (IsIn "BinOp"  (pair tInt tInt))
+      <:> addInst [] (IsIn "BinOp"  (pair (pointer aTVar) (pointer bTVar)))
+    , builtIns =
+      let
+        -- functions of the form 'a -> a -> a'
+        aaaFuncWithClasses cs = quantify [aVar] (cs :=> (aTVar `fn` aTVar `fn` aTVar))
+        -- functions of the form '(a, a) -> a'
+        t2aaaFuncWithClasses cs = quantify [aVar] (cs :=> (tupledTypes [aTVar, aTVar] `fn` aTVar))
+        -- functions of the form 'a -> a -> Void'
+        aaVFuncWithClasses cs = quantify [aVar] (cs :=> (aTVar `fn` aTVar `fn` tVoid))
+        -- functions of the form '(a, a) -> Void'
+        t2aaVFuncWithClasses cs = quantify [aVar] (cs :=> (tupledTypes [aTVar, aTVar] `fn` tVoid))
+        -- functions of the form 'a -> b -> a'
+        abaFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (aTVar `fn` bTVar `fn` aTVar))
+        -- functions of the form '(a, b) -> a'
+        t2abaFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (tupledTypes [aTVar, bTVar] `fn` aTVar))
+        -- functions of the form 'a -> b -> Bool'
+        abBFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (aTVar `fn` bTVar `fn` tBool))
+        -- functions of the form '(a, b) -> Bool'
+        t2abBFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (tupledTypes [aTVar, bTVar] `fn` tBool))
+      in Set.fromList
+        [ addOpFunc :>: aaaFuncWithClasses [IsIn "Add" aTVar]  -- TODO: all arithmetics
+        , subOpFunc :>: abaFuncWithClasses [IsIn "Sub" (pair aTVar bTVar)]
+        , mulOpFunc :>: aaaFuncWithClasses [IsIn "Mul" aTVar]
+        , divOpFunc :>: abaFuncWithClasses [IsIn "Div" (pair aTVar bTVar)]
+        , modOpFunc :>: abaFuncWithClasses [IsIn "Mod" (pair aTVar bTVar)]
+        , assOpFunc :>: aaaFuncWithClasses []
+        , addAssOpFunc :>: abaFuncWithClasses [IsIn "Add" (pair aTVar bTVar)]
+        , subAssOpFunc :>: abaFuncWithClasses [IsIn "Sub" (pair aTVar bTVar)]
+        , mulAssOpFunc :>: abaFuncWithClasses [IsIn "Mul" (pair aTVar bTVar)]
+        , divAssOpFunc :>: abaFuncWithClasses [IsIn "Div" (pair aTVar bTVar)]
+        , modAssOpFunc :>: abaFuncWithClasses [IsIn "Mod" (pair aTVar bTVar)]
+        , eqOpFunc :>: abBFuncWithClasses [IsIn "Eq" (pair aTVar bTVar)]
+        , neqOpFunc :>: abBFuncWithClasses [IsIn "Eq" (pair aTVar bTVar)]
+        , ltOpFunc :>: abBFuncWithClasses [IsIn "LG" (pair aTVar bTVar)]
+        , gtOpFunc :>: abBFuncWithClasses [IsIn "LG" (pair aTVar bTVar)]
+        , leOpFunc :>: abBFuncWithClasses [IsIn "LG" (pair aTVar bTVar), IsIn "Eq" (pair aTVar bTVar)]
+        , geOpFunc :>: abBFuncWithClasses [IsIn "LG" (pair aTVar bTVar), IsIn "Eq" (pair aTVar bTVar)]
+        , commaOpFunc :>: quantify [aVar, bVar] ([] :=> (aTVar `fn` bTVar `fn` bTVar))
+        , ternaryOpFunc :>: quantify [aVar, bVar] ([] :=> (aTVar `fn` bTVar `fn` bTVar `fn` bTVar)) -- TODO: aTVar has to be 0 comparable
+        , elvisOpFunc :>: quantify [aVar, bVar] ([] :=> (aTVar `fn` bTVar `fn` bTVar)) -- TODO: aTVar has to be 0 comparable
+        , indexOpFunc :>: quantify [aVar, bVar] ([] :=> (pointer aTVar `fn` bTVar `fn` aTVar)) -- TODO: bTVar has to be integral
+        , refFunc :>: quantify [aVar] ([] :=> (aTVar `fn` pointer aTVar))
+        , derefFunc :>: quantify [aVar] ([] :=> (pointer aTVar `fn` aTVar))
+        , returnFunc :>: aaaFuncWithClasses []
+        , caseFunc :>: quantify [aVar] ([] :=> (aTVar `fn` aTVar `fn` tBool))
+        ]
+    }
 
 -- | Renames a variable's name depending on which scope we are currently parsing
 renameScoped :: Scope -> Id -> Id
@@ -530,11 +527,17 @@ scopedName id = do
     Just s -> return $ renameScoped s id
     _ -> return $ "@Error:" ++ id
 
+sgName :: Id -> TState Id
+sgName id = storeName id >> scopedName id
+
 getNextAnon :: TState Int
 getNextAnon = do
   state@TransformMonad{anonymousCounter = i} <- get
   put state {anonymousCounter = i + 1}
   return i
+
+appendNextAnon :: Id -> TState Id
+appendNextAnon id = (id ++) . show <$> getNextAnon
 
 enterCHMHead :: TState ()
 enterCHMHead = do
@@ -913,7 +916,7 @@ registerClassDeclaration cId (mId :>: scheme) = do
 getMethodScheme :: Id -> Id -> TState (Maybe Scheme)
 getMethodScheme cId mId = do
   state@TransformMonad{userClasses=uCs} <- get
-  return $ methodScheme <$> (Map.lookup mId =<< methods <$> (Map.lookup cId uCs))
+  return $ methodScheme <$> (Map.lookup mId =<< methods <$> Map.lookup cId uCs)
 
 mangleName :: Id -> Type -> TState Id
 mangleName id mType = do
