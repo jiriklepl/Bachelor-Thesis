@@ -259,9 +259,23 @@ registerCHMStructMembers id cDecls = do
         _ -> return ()
   when registered $ sequence_ (registerSingleCDecl <$> cDecls)
 
+instance Transform a => Transform [a] where
+  transform as = concat <$> traverse transform as
+
+instance Transform a => Transform (BindGroup, a) where
+  transform (bindGroup, a) = do
+    a' <- transform a
+    return $ bindGroup : a'
+
+instance Transform Expl where
+  transform expl = return [([expl],[])]
+
+instance Transform Impl where
+  transform impl = return [([],[[impl]])]
+
 instance Transform CTranslUnit where
   transform (CTranslUnit [] _) = return []
-  transform (CTranslUnit extDecls a) = concat <$> traverse transform extDecls
+  transform (CTranslUnit extDecls a) = transform extDecls
 
 instance Transform CExtDecl where
   transform  (CDeclExt a)   = transform a
@@ -511,7 +525,7 @@ instance Transform CStat where
     CCompound _ [] _ -> return []
     CCompound _ block _ -> do
       enterScope []
-      transBlock <- concat <$> traverse transform block
+      transBlock <- transform block
       leaveScope
       return transBlock
     CIf expr tStmt (Just fStmt) _ -> do

@@ -4,9 +4,11 @@ module CHM.InstantiateMonad where
 import Control.Monad.State
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import Data.Char
 
 import Language.C.Syntax
 import Language.C.Data
+import Language.C.Data.Ident (Ident(..))
 
 import TypingHaskellInHaskell
 import CHM.Transform
@@ -23,6 +25,7 @@ data InstantiateMonad = InstantiateMonad
   , transformState :: TransformMonad
   , lastScopeCopy  :: Int
   , polyTypes      :: Map.Map Id PolyType
+  , polyAnonNumber :: Int
   }
 
 initInstantiateMonad :: InstantiateMonad
@@ -31,7 +34,14 @@ initInstantiateMonad = InstantiateMonad
   , transformState = initTransformMonad
   , lastScopeCopy  = 0
   , polyTypes      = Map.empty
+  , polyAnonNumber = 0
   }
+
+polyAnonRename :: Id -> IState Id
+polyAnonRename id = do
+  state@InstantiateMonad{polyAnonNumber = pAN} <- get
+  put state{polyAnonNumber = pAN + 1}
+  return $ id ++ show pAN
 
 addPolyTypeInstance :: Id -> Id -> IState ()
 addPolyTypeInstance pId iId = do
@@ -161,7 +171,13 @@ instance ReplacePolyTypes CExpr where
   replacePolyTypes (CMember cExpr ident deref a) = do
     (cExpr', exprMap) <- replacePolyTypes cExpr
     return (CMember cExpr' ident deref a, exprMap)
-  -- TODO: CVar is the critical one
+  replacePolyTypes cVar@(CVar (Ident vId _ pos) a) = do
+    InstantiateMonad{polyTypes = pTs} <- get
+    if vId `Map.member` pTs
+      then do
+        vId' <- polyAnonRename vId
+        return (CVar (Ident vId' (quad vId') pos) a, Map.singleton vId' vId)
+      else return (cVar, Map.empty)
   replacePolyTypes cConst@(CConst _) = return (cConst, Map.empty)
   -- TODO: CCompoundLit
   -- TODO: CGenericSelection
@@ -170,6 +186,27 @@ instance ReplacePolyTypes CExpr where
     return (CStatExpr cStat' a, statMap)
   replacePolyTypes cLabAddrExpr@(CLabAddrExpr _ _) = return (cLabAddrExpr, Map.empty)
   -- TODO: CBuiltinExpr
+
+quad                 :: String -> Int
+quad (c1:c2:c3:c4:s)  = ((ord c4 * bits21
+                          + ord c3 * bits14
+                          + ord c2 * bits7
+                          + ord c1)
+                         `mod` bits28)
+                        + (quad s `mod` bits28)
+quad (c1:c2:c3:[]  )  = ord c3 * bits14 + ord c2 * bits7 + ord c1
+quad (c1:c2:[]     )  = ord c2 * bits7 + ord c1
+quad (c1:[]        )  = ord c1
+quad ([]           )  = 0
+
+bits7 :: Int
+bits7  = 2^(7::Int)
+bits14 :: Int
+bits14 = 2^(14::Int)
+bits21 :: Int
+bits21 = 2^(21::Int)
+bits28 :: Int
+bits28 = 2^(28::Int)
 
 instance ReplacePolyTypes a => ReplacePolyTypes [a] where
   replacePolyTypes as = do
@@ -180,7 +217,15 @@ instantiate :: CExtDecl -> Scheme -> IState [CExtDecl]
 instantiate extFunDef scheme = do
   syncScopes
   (extFunDef', polyMap) <- replacePolyTypes extFunDef
-  as <- parse extFunDef'
+  let
+    expls =
+      [ ( var
+        , toScheme $ TVar $ Tyvar ("@TV:"++var) Star
+        , [([],Var real)]
+        )
+      | (var, real) <- Map.toList polyMap
+      ]
+  as <- parse ((expls, []) :: BindGroup, extFunDef')
   InstantiateMonad{polyTypes = pTs} <- get
   children <- concat <$> sequence
     [ case name' `Map.lookup` polyMap of
