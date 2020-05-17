@@ -52,51 +52,51 @@ instance ReplacePolyTypes CExtDecl where
 instance ReplacePolyTypes CStat where
   replacePolyTypes stmt@(CLabel _ _ _ _) = return (stmt, Map.empty)
   replacePolyTypes (CCase cExpr cStat a) = do
-    replaceExpr <- replacePolyTypes cExpr
-    replaceStmt <- replacePolyTypes cStat
+    (cExpr', exprMap) <- replacePolyTypes cExpr
+    (cStat', statMap) <- replacePolyTypes cStat
     return
-      ( CCase (fst replaceExpr) (fst replaceStmt) a
-      , snd replaceExpr `Map.union` snd replaceStmt
+      ( CCase cExpr' cStat' a
+      , exprMap `Map.union` statMap
       )
   replacePolyTypes (CCases _ _ _ _) = return $ error "case ranges not yet supported"  -- TODO: do cases
   replacePolyTypes (CDefault cStat a) = do
-    replaceStat <- replacePolyTypes cStat
-    return (CDefault (fst replaceStat) a, snd replaceStat)
+    (cStat', statMap) <- replacePolyTypes cStat
+    return (CDefault cStat' a, statMap)
   replacePolyTypes (CExpr (Just cExpr) a) = do
-    replaceExpr <- replacePolyTypes cExpr
-    return (CExpr (Just $ fst replaceExpr) a, snd replaceExpr)
+    (cExpr', exprMap) <- replacePolyTypes cExpr
+    return (CExpr (Just cExpr') a, exprMap)
   replacePolyTypes cExpr@(CExpr Nothing _) = return (cExpr, Map.empty)
   replacePolyTypes (CCompound labels blockItems a) = do
-    replaceItems <- replacePolyTypes blockItems
-    return (CCompound labels (fst replaceItems) a, snd replaceItems)
+    (blockItems', itemsMap) <- replacePolyTypes blockItems
+    return (CCompound labels blockItems' a, itemsMap)
   replacePolyTypes (CIf cExpr cThen (Just cElse) a) = do
-    replaceExpr <- replacePolyTypes cExpr
-    replaceThen <- replacePolyTypes cThen
-    replaceElse <- replacePolyTypes cElse
+    (cExpr', exprMap) <- replacePolyTypes cExpr
+    (cThen', thenMap) <- replacePolyTypes cThen
+    (cElse', elseMap) <- replacePolyTypes cElse
     return
-      ( CIf (fst replaceExpr) (fst replaceThen) (Just (fst replaceElse)) a
-      , snd replaceExpr `Map.union` snd replaceThen `Map.union` snd replaceElse
+      ( CIf cExpr' cThen' (Just cElse') a
+      , exprMap `Map.union` thenMap `Map.union` elseMap
       )
   replacePolyTypes (CIf cExpr cThen Nothing a) = do
-    replaceExpr <- replacePolyTypes cExpr
-    replaceThen <- replacePolyTypes cThen
+    (cExpr', exprMap) <- replacePolyTypes cExpr
+    (cThen', thenMap) <- replacePolyTypes cThen
     return
-      ( CIf (fst replaceExpr) (fst replaceThen) Nothing a
-      , snd replaceExpr `Map.union` snd replaceThen
+      ( CIf cExpr' cThen' Nothing a
+      , exprMap `Map.union` thenMap
       )
   replacePolyTypes (CSwitch cExpr cStat a) = do
-    replaceExpr <- replacePolyTypes cExpr
-    replaceStmt <- replacePolyTypes cStat
+    (cExpr', exprMap) <- replacePolyTypes cExpr
+    (cStat', statMap) <- replacePolyTypes cStat
     return
-      ( CSwitch (fst replaceExpr) (fst replaceStmt) a
-      , snd replaceExpr `Map.union` snd replaceStmt
+      ( CSwitch cExpr' cStat' a
+      , exprMap `Map.union` statMap
       )
   replacePolyTypes (CWhile cExpr cStat doWhile a) = do
-    replaceExpr <- replacePolyTypes cExpr
-    replaceStmt <- replacePolyTypes cStat
+    (cExpr', exprMap) <- replacePolyTypes cExpr
+    (cStat', statMap) <- replacePolyTypes cStat
     return
-      ( CWhile (fst replaceExpr) (fst replaceStmt) doWhile a
-      , snd replaceExpr `Map.union` snd replaceStmt
+      ( CWhile cExpr' cStat' doWhile a
+      , exprMap `Map.union` statMap
       )
   replacePolyTypes (CFor _ _ _ _ _) = return $ error "for is not yet supported"  -- TODO: do for
   replacePolyTypes cGoto@(CGoto _ _) = return (cGoto, Map.empty)
@@ -104,25 +104,72 @@ instance ReplacePolyTypes CStat where
   replacePolyTypes cCont@(CCont _) = return (cCont, Map.empty)
   replacePolyTypes cBreak@(CBreak _) = return (cBreak, Map.empty)
   replacePolyTypes (CReturn (Just cExpr) a) = do
-    replaceExpr <- replacePolyTypes cExpr
-    return (CReturn (Just $ fst replaceExpr) a, snd replaceExpr)
+    (cExpr', exprMap) <- replacePolyTypes cExpr
+    return (CReturn (Just $ cExpr') a, exprMap)
   replacePolyTypes cAsm@(CAsm _ _) = return (cAsm, Map.empty)  -- TODO: todo or not todo
 
 instance  ReplacePolyTypes CBlockItem where
   replacePolyTypes (CBlockStmt cStat) = do
-    replaceStat <- replacePolyTypes cStat
-    return (CBlockStmt $ fst replaceStat, snd replaceStat)
+    (cStat', statMap) <- replacePolyTypes cStat
+    return (CBlockStmt $ cStat', statMap)
 
 instance ReplacePolyTypes CExpr where
   replacePolyTypes (CComma cExprs a) = do
-    replaceExprs <- traverse replacePolyTypes cExprs
-    return (CComma (fst <$> replaceExprs) a, foldl1 Map.union (snd <$> replaceExprs))
+    (cExprs', exprsMap) <- replacePolyTypes cExprs
+    return (CComma cExprs' a, exprsMap)
   replacePolyTypes (CAssign assOp lExpr rExpr a) = do
     (lExpr', lMap) <- replacePolyTypes lExpr
     (rExpr', rMap) <- replacePolyTypes rExpr
     return (CAssign assOp lExpr' rExpr' a, lMap `Map.union` rMap)
-  -- TODO: continue from here...
-
+  replacePolyTypes (CCond cExpr (Just cThen) cElse a) = do
+    (cExpr', exprMap) <- replacePolyTypes cExpr
+    (cThen', thenMap) <- replacePolyTypes cThen
+    (cElse', elseMap) <- replacePolyTypes cElse
+    return
+      ( CCond cExpr' (Just cThen') cElse' a
+      , exprMap `Map.union` thenMap `Map.union` elseMap
+      )
+  replacePolyTypes (CBinary binOp cLeft cRight a) = do
+    (cLeft', leftMap) <- replacePolyTypes cLeft
+    (cRight', rightMap) <- replacePolyTypes cRight
+    return
+      ( CBinary binOp cLeft' cRight' a
+      , leftMap `Map.union` rightMap
+      )
+  -- TODO: CCast
+  replacePolyTypes (CUnary unOp cExpr a) = do
+    (cExpr', exprMap) <- replacePolyTypes cExpr
+    return (CUnary unOp cExpr' a, exprMap)
+  replacePolyTypes (CSizeofExpr cExpr a) = do
+    (cExpr', exprMap) <- replacePolyTypes cExpr
+    return (CSizeofExpr cExpr' a, exprMap)
+  -- TODO: CSizeofType
+  replacePolyTypes (CAlignofExpr cExpr a) = do
+    (cExpr', exprMap) <- replacePolyTypes cExpr
+    return (CAlignofExpr cExpr' a, exprMap)
+  -- TODO: CAlignofType
+  replacePolyTypes (CComplexReal cExpr a) = do
+    (cExpr', exprMap) <- replacePolyTypes cExpr
+    return (CComplexReal cExpr' a, exprMap)
+  replacePolyTypes (CComplexImag cExpr a) = do
+    (cExpr', exprMap) <- replacePolyTypes cExpr
+    return (CComplexImag cExpr' a, exprMap)
+  replacePolyTypes (CCall cExpr cExprs a) = do
+    (cExpr', exprMap) <- replacePolyTypes cExpr
+    (cExprs', exprsMap) <- replacePolyTypes cExprs
+    return (CCall cExpr' cExprs' a, exprMap `Map.union` exprsMap)
+  replacePolyTypes (CMember cExpr ident deref a) = do
+    (cExpr', exprMap) <- replacePolyTypes cExpr
+    return (CMember cExpr' ident deref a, exprMap)
+  -- TODO: CVar is the critical one
+  replacePolyTypes cConst@(CConst _) = return (cConst, Map.empty)
+  -- TODO: CCompoundLit
+  -- TODO: CGenericSelection
+  replacePolyTypes (CStatExpr cStat a) = do
+    (cStat', statMap) <- replacePolyTypes cStat
+    return (CStatExpr cStat' a, statMap)
+  replacePolyTypes cLabAddrExpr@(CLabAddrExpr _ _) = return (cLabAddrExpr, Map.empty)
+  -- TODO: CBuiltinExpr
 
 instance ReplacePolyTypes a => ReplacePolyTypes [a] where
   replacePolyTypes as = do
