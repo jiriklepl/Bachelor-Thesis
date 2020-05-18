@@ -17,7 +17,7 @@ type IState = State InstantiateMonad
 
 data PolyType = PolyType
   { definition :: CExtDecl
-  , instances  :: (Set.Set Id)
+  , instances  :: Set.Set Id
   }
 
 data InstantiateMonad = InstantiateMonad
@@ -55,12 +55,12 @@ class ReplacePolyTypes a where
 
 instance ReplacePolyTypes CExtDecl where
   replacePolyTypes (CHMFDefExt (CHMFunDef chmHead (CFunDef cDeclSpecs cDeclr cDecls cStmt a) b)) = do
-    replaceStmt <- replacePolyTypes (cStmt)
+    replaceStmt <- replacePolyTypes cStmt
     let (cStmt', mapStmt) = replaceStmt
-    return ((CHMFDefExt (CHMFunDef chmHead (CFunDef cDeclSpecs cDeclr cDecls cStmt' a) b)), mapStmt)
+    return (CHMFDefExt (CHMFunDef chmHead (CFunDef cDeclSpecs cDeclr cDecls cStmt' a) b), mapStmt)
 
 instance ReplacePolyTypes CStat where
-  replacePolyTypes stmt@(CLabel _ _ _ _) = return (stmt, Map.empty)
+  replacePolyTypes stmt@CLabel{} = return (stmt, Map.empty)
   replacePolyTypes (CCase cExpr cStat a) = do
     (cExpr', exprMap) <- replacePolyTypes cExpr
     (cStat', statMap) <- replacePolyTypes cStat
@@ -68,7 +68,7 @@ instance ReplacePolyTypes CStat where
       ( CCase cExpr' cStat' a
       , exprMap `Map.union` statMap
       )
-  replacePolyTypes (CCases _ _ _ _) = return $ error "case ranges not yet supported"  -- TODO: do cases
+  replacePolyTypes CCases{} = return $ error "case ranges not yet supported"  -- TODO: do cases
   replacePolyTypes (CDefault cStat a) = do
     (cStat', statMap) <- replacePolyTypes cStat
     return (CDefault cStat' a, statMap)
@@ -108,20 +108,20 @@ instance ReplacePolyTypes CStat where
       ( CWhile cExpr' cStat' doWhile a
       , exprMap `Map.union` statMap
       )
-  replacePolyTypes (CFor _ _ _ _ _) = return $ error "for is not yet supported"  -- TODO: do for
+  replacePolyTypes CFor{} = return $ error "for is not yet supported"  -- TODO: do for
   replacePolyTypes cGoto@(CGoto _ _) = return (cGoto, Map.empty)
   replacePolyTypes cGotoPtr@(CGotoPtr _ _) = return (cGotoPtr, Map.empty)  -- TODO: well this is not right, right?
   replacePolyTypes cCont@(CCont _) = return (cCont, Map.empty)
   replacePolyTypes cBreak@(CBreak _) = return (cBreak, Map.empty)
   replacePolyTypes (CReturn (Just cExpr) a) = do
     (cExpr', exprMap) <- replacePolyTypes cExpr
-    return (CReturn (Just $ cExpr') a, exprMap)
+    return (CReturn (Just cExpr') a, exprMap)
   replacePolyTypes cAsm@(CAsm _ _) = return (cAsm, Map.empty)  -- TODO: todo or not todo
 
 instance  ReplacePolyTypes CBlockItem where
   replacePolyTypes (CBlockStmt cStat) = do
     (cStat', statMap) <- replacePolyTypes cStat
-    return (CBlockStmt $ cStat', statMap)
+    return (CBlockStmt cStat', statMap)
 
 instance ReplacePolyTypes CExpr where
   replacePolyTypes (CComma cExprs a) = do
@@ -194,10 +194,10 @@ quad (c1:c2:c3:c4:s)  = ((ord c4 * bits21
                           + ord c1)
                          `mod` bits28)
                         + (quad s `mod` bits28)
-quad (c1:c2:c3:[]  )  = ord c3 * bits14 + ord c2 * bits7 + ord c1
-quad (c1:c2:[]     )  = ord c2 * bits7 + ord c1
-quad (c1:[]        )  = ord c1
-quad ([]           )  = 0
+quad [c1, c2, c3] = ord c3 * bits14 + ord c2 * bits7 + ord c1
+quad [c1, c2    ] = ord c2 * bits7 + ord c1
+quad [c1        ] = ord c1
+quad [          ] = 0
 
 bits7 :: Int
 bits7  = 2^(7::Int)
@@ -230,10 +230,11 @@ instantiate extFunDef scheme = do
   children <- concat <$> sequence
     [ case name' `Map.lookup` polyMap of
         (Just name) -> case name `Map.lookup` pTs of
-          (Just pType) ->
-            if name' `Set.member` instances pType
-            then addPolyTypeInstance name (name ++ mangleScheme scheme') >> instantiate (definition pType) scheme'
-            else return []
+          (Just pType) -> do
+            let mangledName = name ++ mangleScheme scheme'
+            if mangledName `Set.member` instances pType
+              then addPolyTypeInstance name mangledName >> instantiate (definition pType) scheme'
+              else return []
           Nothing ->
             return $ error "this is weird, like really this should not happen.."
         Nothing -> return $ error "I don't know.. maybe not an error"

@@ -92,7 +92,7 @@ fn         :: Type -> Type -> Type
 a `fn` b    = TAp (TAp tArrow a) b
 
 list       :: Type -> Type
-list t      = TAp tList t
+list        = (tList `TAp`)
 
 pair       :: Type -> Type -> Type
 pair a b    = TAp (TAp tTuple2 a) b
@@ -138,7 +138,7 @@ instance Types Type where
 
 instance Types a => Types [a] where
   apply s = map (apply s)
-  tv      = nub . concat . map tv
+  tv      = nub . concatMap tv
 
 infixr 4 @@
 (@@)       :: Subst -> Subst -> Subst
@@ -242,7 +242,7 @@ infixr 5 <:>
 addClass                              :: Id -> [Id] -> EnvTransformer
 addClass i is ce
  | defined (classes ce i)              = fail "class already defined"
- | any (not . defined . classes ce) is = fail "superclass not defined"
+ | not (all (defined . classes ce) is) = fail "superclass not defined"
  | otherwise                           = return (modify ce i (is, []))
 
 addPreludeClasses :: EnvTransformer
@@ -301,7 +301,7 @@ byInst ce p@(IsIn i t)    = msum [ tryInst it | it <- insts ce i ]
                                Just (map (apply u) ps)
 
 entail        :: ClassEnv -> [Pred] -> Pred -> Bool
-entail ce ps p = any (p `elem`) (map (bySuper ce) ps) ||
+entail ce ps p = any ((p `elem`) . bySuper ce) ps ||
                  case byInst ce p of
                    Nothing -> False
                    Just qs -> all (entail ce ps) qs
@@ -335,7 +335,7 @@ reduce ce ps = do qs <- toHnfs ce ps
                   return (simplify ce qs)
 
 scEntail        :: ClassEnv -> [Pred] -> Pred -> Bool
-scEntail ce ps p = any (p `elem`) (map (bySuper ce) ps)
+scEntail ce ps p = any ((p `elem`) . bySuper ce) ps
 
 -----------------------------------------------------------------------------
 -- Scheme:	Type schemes
@@ -364,7 +364,7 @@ toScheme t     = Forall [] ([] :=> t)
 data Assump = Id :>: Scheme deriving(Show, Eq)
 
 instance Types Assump where
-  apply s (i :>: sc) = i :>: (apply s sc)
+  apply s (i :>: sc) = i :>: apply s sc
   tv (i :>: sc)      = tv sc
 
 instance Ord Assump where
@@ -396,7 +396,7 @@ instance Applicative TI where
                                        in (s'', n'', f x y))
 
 instance Functor TI where
-  fmap f xs = xs >>= (\x -> pure (f x))
+  fmap f xs = f <$> xs
 
 runTI       :: TI a -> a
 runTI (TI f) = x where (s,n,x) = f nullSubst 0
@@ -542,8 +542,8 @@ tiAlt ce as (pats, e) = do (ps, as', ts) <- tiPats pats
 
 tiAlts             :: ClassEnv -> [Assump] -> [Alt] -> Type -> TI [Pred]
 tiAlts ce as alts t = do psts <- mapM (tiAlt ce as) alts
-                         mapM (unify t) (map snd psts)
-                         return (concat (map fst psts))
+                         mapM_ (unify t . snd) psts
+                         return (concatMap fst psts)
 
 -----------------------------------------------------------------------------
 
@@ -570,7 +570,7 @@ stdClasses  = ["Eq", "Ord", "Show", "Read", "Bounded", "Enum", "Ix",
 candidates           :: ClassEnv -> Ambiguity -> [Type]
 candidates ce (v, qs) = [ t' | let is = [ i | IsIn i t <- qs ]
                                    ts = [ t | IsIn i t <- qs ],
-                               all ((TVar v)==) ts,
+                               all (TVar v ==) ts,
                                any (`elem` numClasses) is,
                                all (`elem` stdClasses) is,
                                t' <- defaults ce,
@@ -585,10 +585,10 @@ withDefaults f ce vs ps
             tss = map (candidates ce) vps
 
 defaultedPreds :: MonadFail m => ClassEnv -> [Tyvar] -> [Pred] -> m [Pred]
-defaultedPreds  = withDefaults (\vps ts -> concat (map snd vps))
+defaultedPreds  = withDefaults (const . concatMap snd)
 
 defaultSubst   :: MonadFail m => ClassEnv -> [Tyvar] -> [Pred] -> m Subst
-defaultSubst    = withDefaults (\vps ts -> zip (map fst vps) ts)
+defaultSubst    = withDefaults (zip . map fst)
 
 -----------------------------------------------------------------------------
 
