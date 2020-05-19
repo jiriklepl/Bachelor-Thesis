@@ -4,11 +4,13 @@ module Main where
 import Language.C
 import Language.C.System.GCC
 import CHM.Transform
+import CHM.Instantiate
 
 main = do
   ast <- parseMyFile "test.chm"
   transformAST ast
   typeAST ast
+  itsAKindOfMagic ast
 
 parseMyFile :: FilePath -> IO CTranslUnit
 parseMyFile input_file =
@@ -16,6 +18,9 @@ parseMyFile input_file =
      case parse_result of
        Left parse_err -> error (show parse_err)
        Right ast      -> return ast
+
+itsAKindOfMagic :: CTranslUnit -> IO ()
+itsAKindOfMagic = printPretty . doMagic
 
 printPretty :: CTranslUnit -> IO ()
 printPretty = print . pretty

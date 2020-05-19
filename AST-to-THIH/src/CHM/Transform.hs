@@ -1,6 +1,7 @@
 {-# LANGUAGE FlexibleInstances, FlexibleContexts #-}
 module CHM.Transform
   ( Transform (..)
+  , TransformCHMFunDef (..)
   , TState
   , TransformMonad (..)
   , runInfer
@@ -27,9 +28,8 @@ class Transform a where
 getTransformResult :: Transform a => a -> Program
 getTransformResult = fst . runTState . transform
 
-typeInfer :: Transform a => [Assump] -> a -> TState [Assump]
-typeInfer assumps a = do
-  program <- transform a
+typeInfer :: [Assump] -> Program -> TState [Assump]
+typeInfer assumps program = do
   TransformMonad{builtIns = bIs, memberClasses = mCs}  <- get
   case mCs initialEnv of
     Nothing -> return $ error "Environment corrupted"
@@ -234,8 +234,8 @@ registerStructMembers id cDecls = do
       case declrs of
         (Just (CDeclr (Just (Ident mId _ _)) derivedDecls _ _ _), Nothing, Nothing):rest -> do
           pureType <- translateDeclSpecs specs
-          transType <- translateDerivedDecl pureType derivedDecls
-          registerMember id mId transType
+          type' <- translateDerivedDecl pureType derivedDecls
+          registerMember id mId type'
           registerSingleCDecl (CDecl specs rest a)
         (Just (CDeclr (Just (Ident mId _ _)) derivedDecls _ _ _), Just _, Nothing):rest ->
           registerSingleCDecl (CDecl specs rest a)  -- TODO: this is probably error (but still recognized by c++ as kosher)
@@ -251,8 +251,8 @@ registerCHMStructMembers id cDecls = do
       case declrs of
         (Just (CDeclr (Just (Ident mId _ _)) derivedDecls _ _ _), Nothing, Nothing):rest -> do
           pureType <- translateDeclSpecs specs
-          transType <- translateDerivedDecl pureType derivedDecls
-          registerCHMMember id mId transType
+          type' <- translateDerivedDecl pureType derivedDecls
+          registerCHMMember id mId type'
           registerSingleCDecl (CDecl specs rest a)
         (Just (CDeclr (Just (Ident mId _ _)) derivedDecls _ _ _), Just _, Nothing):rest ->
           registerSingleCDecl (CDecl specs rest a)  -- TODO: this is probably error (but still recognized by c++ as kosher)
@@ -261,11 +261,6 @@ registerCHMStructMembers id cDecls = do
 
 instance Transform a => Transform [a] where
   transform as = concat <$> traverse transform as
-
-instance Transform a => Transform (BindGroup, a) where
-  transform (bindGroup, a) = do
-    a' <- transform a
-    return $ bindGroup : a'
 
 instance Transform Expl where
   transform expl = return [([expl],[])]
@@ -298,77 +293,77 @@ transformExpr cExpr = let
   in case cExpr of
   -- exprs is guaranteed to have at least 2 elements
   CComma exprs _ -> do
-    transs <- traverse transformExpr exprs
+    exprs' <- traverse transformExpr exprs
     return $ foldl1
       (Ap . Ap (Var commaOpFunc))
-      transs
+      exprs'
   CAssign op lExpr rExpr _ -> do
-    lTrans <- transformExpr lExpr
-    rTrans <- transformExpr rExpr
+    lExpr' <- transformExpr lExpr
+    rExpr' <- transformExpr rExpr
     return $ ap2
       (Var $ operatorFunction op)
-      lTrans
-      rTrans
+      lExpr'
+      rExpr'
   -- this is the ternary operator
   CCond cExpr (Just tExpr) fExpr _ -> do
-    cTrans <- transformExpr tExpr
-    tTrans <- transformExpr tExpr
-    fTrans <- transformExpr fExpr
+    cExpr' <- transformExpr cExpr
+    tExpr' <- transformExpr tExpr
+    fExpr' <- transformExpr fExpr
     return $ ap3
       (Var ternaryOpFunc)
-      cTrans
-      tTrans
-      fTrans
+      cExpr'
+      tExpr'
+      fExpr'
   -- this is elvis (supported by gnu)
   CCond cExpr Nothing fExpr _ -> do
-    cTrans <- transformExpr cExpr
-    fTrans <- transformExpr fExpr
+    cExpr' <- transformExpr cExpr
+    fExpr' <- transformExpr fExpr
     return $ ap2
       (Var elvisOpFunc)
-      cTrans
-      fTrans
+      cExpr'
+      fExpr'
   CBinary op lExpr rExpr _ -> do
-    lTrans <- transformExpr lExpr
-    rTrans <- transformExpr rExpr
-    return $ Var (operatorFunction op) `Ap` lTrans `Ap` rTrans
+    lExpr' <- transformExpr lExpr
+    rExpr' <- transformExpr rExpr
+    return $ Var (operatorFunction op) `Ap` lExpr' `Ap` rExpr'
   -- TODO: CCast
   CUnary op expr _ -> do
-    trans <- transformExpr expr
+    expr' <- transformExpr expr
     return $ Ap
       (Var $ operatorFunction op)
-      trans
+      expr'
   -- TODO: CSizeofExpr
   -- TODO: CSizeofType
   -- ditto align
   -- TODO: CComplexReal
   CIndex aExpr iExpr _ -> do
-    aTrans <- transformExpr aExpr
-    iTrans <- transformExpr iExpr
+    aExpr' <- transformExpr aExpr
+    iExpr' <- transformExpr iExpr
     return $ ap2
       (Var indexOpFunc)
-      aTrans
-      iTrans
+      aExpr'
+      iExpr'
   CCall func exprs _ -> do
     tuple <- getTuple (length exprs)
-    fTrans <- transformExpr func
-    eTrans <- traverse transformExpr exprs
+    func' <- transformExpr func
+    exprs' <- traverse transformExpr exprs
     return $ Ap
-      fTrans
-      (foldl Ap (Var tuple) eTrans)
+      func'
+      (foldl Ap (Var tuple) exprs')
   -- sExpr->mId
   CMember sExpr mId True _ -> do
     member <- getMember mId
-    sTrans <- transformExpr sExpr
+    sExpr' <- transformExpr sExpr
     return $ Ap
       (Var member)
-      (deref sTrans)
+      (deref sExpr')
   -- sExpr.mId
   CMember sExpr mId False _ -> do
     member <- getMember mId
-    sTrans <- transformExpr sExpr
+    sExpr' <- transformExpr sExpr
     return $ Ap
       (Var member)
-      sTrans
+      sExpr'
   CVar (Ident sId _ _) _ -> do
     name <- scopedName sId
     return $ Var name
@@ -396,18 +391,18 @@ transformExpr cExpr = let
 
 instance Transform CExpr where
   -- the top-most binding should be first recursively (in comparison that would be the binding of ==, then operands and then their child bindings)
-  transform cExpr = do
+  transform expr = do
     anonName <- appendNextAnon "@Expr"
-    expr <- transformExpr cExpr
-    return [([],[[(anonName, [([],expr)])]])]  -- TODO
+    expr' <- transformExpr expr
+    return [([],[[(anonName, [([],expr')])]])]  -- TODO
 
 instance Transform CFunDef where
   transform funDef@(CFunDef _ (CDeclr (Just (Ident sId _ _)) _ _ _ _) _ _ _) = do
     name <- sgName sId
     enterFunction sId
-    rtrn <- transformFunDef funDef name >>= chmSchemize
+    funDef' <- transformFunDef funDef name
     leaveFunction
-    return [rtrn]
+    return [funDef']
 
 instance Transform CDecl where  -- TODO
   transform (CDecl specs declrs a) = do
@@ -415,15 +410,15 @@ instance Transform CDecl where  -- TODO
     case declrs of  -- TODO
       (Just (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _), Nothing, Nothing):rest -> do
         name <- sgName sId
-        transType <- translateDerivedDecl pureType derivedDecls
-        restTrans <- transform (CDecl specs rest a)
-        return $ ([(name, toScheme transType, [])], []) : restTrans
+        type' <- translateDerivedDecl pureType derivedDecls
+        rest' <- transform (CDecl specs rest a)
+        return $ ([(name, toScheme type', [])], []) : rest'
       (Just (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _), Just (CInitExpr cExpr _), Nothing):rest -> do
         name <- sgName sId
-        transType <- translateDerivedDecl pureType derivedDecls
-        transExpr <- transformExpr cExpr
-        restTrans <- transform (CDecl specs rest a)
-        return $ ([(name, toScheme transType, [([],transExpr)])], []) : restTrans
+        type' <- translateDerivedDecl pureType derivedDecls
+        cExpr' <- transformExpr cExpr
+        rest' <- transform (CDecl specs rest a)
+        return $ ([(name, toScheme type', [([],cExpr')])], []) : rest'
       [] -> return []
   transform (CStaticAssert cExpr cStrLit _) = return []
 
@@ -432,21 +427,23 @@ instance Transform CStrLit where
     anonName <- appendNextAnon "@CString"
     return [([],[[(anonName, [([],Lit $ LitStr s)])]])]  -- TODO
 
+extractParNames :: [CDecl] -> TState [Id]
+extractParNames (parDecl:parDecls) =
+  case parDecl of
+    CDecl declSpecs [(Nothing, _, _)] _ -> do
+      anonName <- appendNextAnon "@TODO"
+      (anonName:) <$> extractParNames parDecls
+    CDecl declSpecs [(Just (CDeclr Nothing derived _ _ _), _, _)] _ -> do
+      anonName <- appendNextAnon "@TODO"
+      (anonName:) <$> extractParNames parDecls
+    CDecl declSpecs [(Just (CDeclr (Just (Ident parId _ _)) derived _ _ _), _, _)] _ -> do
+      pName <- sgName parId
+      (pName:) <$> extractParNames parDecls
+extractParNames [] = return []
+
 transformFunDef :: CFunDef -> Id -> TState BindGroup
 transformFunDef (CFunDef specs (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _) decls stmt _) name = do -- TODO
     let
-      extractPars (parDecl:parDecls) =
-        case parDecl of
-          CDecl declSpecs [(Nothing, _, _)] _ -> do
-            anonName <- appendNextAnon "@TODO"
-            (anonName:) <$> extractPars parDecls
-          CDecl declSpecs [(Just (CDeclr Nothing derived _ _ _), _, _)] _ -> do
-            anonName <- appendNextAnon "@TODO"
-            (anonName:) <$> extractPars parDecls
-          CDecl declSpecs [(Just (CDeclr (Just (Ident parId _ _)) derived _ _ _), _, _)] _ -> do
-            pName <- sgName parId
-            (pName:) <$> extractPars parDecls
-      extractPars [] = return []
       splitType fType = return $ case fType of
         (TAp (TAp arrowType parsTuple) rType) ->
           (parsTuple, rType)
@@ -457,10 +454,10 @@ transformFunDef (CFunDef specs (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _
           return [parId | Ident parId _ _ <- idents]  -- TODO
         -- not var-args
         CFunDeclr (Right (parDecls, False)) _ _ ->
-          extractPars parDecls
+          extractParNames parDecls
         -- var-args
         CFunDeclr (Right (parDecls, True)) _ _ ->
-          extractPars parDecls  -- TODO
+          extractParNames parDecls  -- TODO
         _ ->
           return []  -- TODO
       changeResult (TAp p r) to = TAp p to
@@ -470,7 +467,7 @@ transformFunDef (CFunDef specs (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _
     paramsName <- sgName "@Params"
     returnName <- sgName "@Return"
     parIds <- typeSignatures
-    transStmt <- transform stmt
+    stmt' <- transform stmt
     returns <- getFunctionReturns
     reassemble . reverseExpls $
       ( [ ( name
@@ -480,7 +477,7 @@ transformFunDef (CFunDef specs (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _
                     (PVar <$> parIds)
                 ]
               , Let
-                  (flattenProgram transStmt)
+                  (flattenProgram stmt')
                   $ foldl -- TODO: here we can do warning if retType is not tVoid and there is nothing to actually return
                     (\ a b -> Var returnFunc `Ap` a `Ap` b)
                     (Const $ returnName :>: toScheme retType)
@@ -497,8 +494,26 @@ instance Transform CHMFunDef where
     name <- sgName sId
     enterFunction sId
     enterCHMHead
-    transHead <- transform chmHead
+    chmHead' <- transform chmHead
     rtrn <- transformFunDef funDef name >>= chmSchemize
+    leaveCHMHead
+    leaveFunction
+    return [rtrn]
+
+class TransformCHMFunDef a where
+  transformCHMFunDef :: a -> TState Program
+
+instance TransformCHMFunDef CExtDecl where
+  transformCHMFunDef (CHMFDefExt chmFunDef) =
+    transformCHMFunDef chmFunDef
+
+instance TransformCHMFunDef CHMFunDef where
+  transformCHMFunDef (CHMFunDef chmHead funDef@(CFunDef _ (CDeclr (Just (Ident sId _ _)) _ _ _ _) _ _ _) _) = do
+    name <- sgName sId
+    enterFunction sId
+    enterCHMHead
+    chmHead' <- transform chmHead
+    rtrn <- transformFunDef funDef name
     leaveCHMHead
     leaveFunction
     return [rtrn]
@@ -509,48 +524,48 @@ instance Transform CStat where
     CCase cExpr stmt _ -> do
       switchName <- getSwitchName
       anonName <- appendNextAnon "@Case"
-      transExpr <- transformExpr cExpr
-      transStmt <- transform stmt
-      return $ ([],[[(anonName, [([],ap2 (Var caseFunc) (Var switchName) transExpr)])]]) : transStmt
+      cExpr' <- transformExpr cExpr
+      stmt' <- transform stmt
+      return $ ([],[[(anonName, [([],ap2 (Var caseFunc) (Var switchName) cExpr')])]]) : stmt'
     CCases lExpr rExpr stmt _ -> do  -- TODO: add checking for range-ness
       switchName <- getSwitchName
       anonName <- appendNextAnon "@Case"
-      lTrans <- transformExpr lExpr
-      rTrans <- transformExpr rExpr
-      transStmt <- transform stmt
-      return $ ([],[[(anonName, [([],ap2 (Var caseFunc) (Var switchName) lTrans), ([],ap2 (Var caseFunc) (Var switchName) rTrans)])]]) : transStmt
+      lExpr' <- transformExpr lExpr
+      rExpr' <- transformExpr rExpr
+      stmt' <- transform stmt
+      return $ ([],[[(anonName, [([],ap2 (Var caseFunc) (Var switchName) lExpr'), ([],ap2 (Var caseFunc) (Var switchName) rExpr')])]]) : stmt'
     CDefault stmt _ -> transform stmt
     CExpr (Just expr) _ -> transform expr
     CExpr Nothing _ -> return []
     CCompound _ [] _ -> return []
     CCompound _ block _ -> do
       enterScope []
-      transBlock <- transform block
+      block' <- transform block
       leaveScope
-      return transBlock
+      return block'
     CIf expr tStmt (Just fStmt) _ -> do
       anonName <- appendNextAnon "@IfElse"
-      transExpr <- transformExpr expr
-      tTrans <- transform tStmt
-      fTrans <- transform fStmt
-      return $ ([],[[(anonName, [([],transExpr)])]]) : (tTrans ++ fTrans)  -- TODO
+      expr' <- transformExpr expr
+      tStmt' <- transform tStmt
+      fStmt' <- transform fStmt
+      return $ ([],[[(anonName, [([],expr')])]]) : (tStmt' ++ fStmt')  -- TODO
     CIf expr tStmt Nothing _ -> do
       anonName <- appendNextAnon "@If"
-      transExpr <- transformExpr expr
-      tTrans <- transform tStmt
-      return $ ([],[[(anonName, [([],transExpr)])]]) : tTrans  -- TODO
+      expr' <- transformExpr expr
+      tStmt' <- transform tStmt
+      return $ ([],[[(anonName, [([],expr')])]]) : tStmt'  -- TODO
     CSwitch expr stmt _ -> do
       enterSwitch
       name <- getSwitchName
-      transExpr <- transformExpr expr
-      transStmt <- transform stmt
+      expr' <- transformExpr expr
+      stmt' <- transform stmt
       leaveSwitch
-      return $ ([],[[(name, [([],transExpr)])]]) : transStmt
+      return $ ([],[[(name, [([],expr')])]]) : stmt'
     CWhile expr stmt _ _ -> do
       anonName <- appendNextAnon "@While"
-      transExpr <- transformExpr expr
-      transStmt <- transform stmt
-      return $ ([],[[(anonName, [([],transExpr)])]]) : transStmt  -- TODO
+      expr' <- transformExpr expr
+      stmt' <- transform stmt
+      return $ ([],[[(anonName, [([],expr')])]]) : stmt'  -- TODO
     CFor _ _ _ a _ -> return []  -- TODO
     CGoto _ _ -> return []
     CGotoPtr _ _ -> return []  -- TODO
@@ -601,10 +616,10 @@ fixKinds t = do
 translateCHMType :: CHMT -> TState Type
 translateCHMType (CHMCType declSpecs _) = translateDeclSpecs declSpecs
 translateCHMType (CHMParType cType (CHMParams cTypes _) _) = do
-  transT <- translateCHMType cType
-  transTs <- traverse translateCHMType cTypes
+  cType' <- translateCHMType cType
+  cTypes' <- traverse translateCHMType cTypes
   let
-    apT = foldl TAp transT transTs
+    apT = foldl TAp cType' cTypes'
   fixKinds apT
 
 transformConstraint :: CHMConstr -> TState (Maybe Pred)
@@ -612,11 +627,11 @@ transformConstraint constr =
   case constr of
     (CHMClassConstr (Ident id _ _) cTypes _) -> do
       let count = length cTypes
-      transTypes <- traverse translateCHMType cTypes
-      return . Just . IsIn id $ createParamsType transTypes
+      cTypes' <- traverse translateCHMType cTypes
+      return . Just . IsIn id $ createParamsType cTypes'
     (CHMUnifyConstr (Ident id _ _) cType _) -> do
-      transType <- translateCHMType cType
-      sgName id >>= flip chmAddAlias transType
+      cType' <- translateCHMType cType
+      sgName id >>= flip chmAddAlias cType'
       return Nothing
 
 translateConstraints :: [CHMConstr] -> TState ()
@@ -639,7 +654,7 @@ instance Transform CHMStructDef where
   -- TODO
   transform (CHMStructDef chmHead (CStruct CStructTag (Just (Ident sId _ _)) (Just cDecls) _ _) _) = do
     enterCHMHead
-    transHead <- transform chmHead
+    chmHead' <- transform chmHead
     registerCHMStructMembers sId cDecls
     leaveCHMHead
     return []
@@ -669,7 +684,7 @@ declareClassContents id cExtDecls = do
 instance Transform CHMCDef where
   transform (CHMCDef (Ident cId _ _) chmHead cExtDecls _) = do
     enterCHMHead
-    transHead <- transform chmHead
+    chmHead' <- transform chmHead
     expls <- declareClassContents cId cExtDecls
     leaveCHMHead
     return [(expls, [])]
@@ -686,8 +701,8 @@ defineInstanceContents id (CHMParams chmTypes _) cExtDecls = do
         f
         (nodeInfo f)
     instanceDefine (CHMFDefExt f) = do
-      fTrans <- transform f
-      let [([(name, scheme, def)],[])] = fTrans
+      f' <- transform f
+      let [([(name, scheme, def)],[])] = f'
       mScheme <- getMethodScheme id name
       parType <- createParamsType <$> traverse translateCHMType chmTypes
       name' <- registerMethodInstance id name parType
@@ -702,7 +717,7 @@ instance Transform CHMIDef where
     transform (CHMIDefHead id (CHMHead [] [] nInfo) chmPars cExtDecls nInfo)
   transform (CHMIDefHead (Ident iId _ _) chmHead chmPars cExtDecls _) = do
     enterCHMHead
-    transHead <- transform chmHead
+    chmHead' <- transform chmHead
     rtrn <- defineInstanceContents iId chmPars cExtDecls
     leaveCHMHead
     return [rtrn]

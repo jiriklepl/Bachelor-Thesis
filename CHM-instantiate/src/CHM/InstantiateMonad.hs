@@ -53,11 +53,15 @@ addPolyTypeInstance pId iId = do
 class ReplacePolyTypes a where
   replacePolyTypes :: a -> IState (a, Map.Map Id Id)
 
-instance ReplacePolyTypes CExtDecl where
+instance ReplacePolyTypes CExtDecl where  -- TODO: I think this needs some polish
   replacePolyTypes (CHMFDefExt (CHMFunDef chmHead (CFunDef cDeclSpecs cDeclr cDecls cStmt a) b)) = do
     replaceStmt <- replacePolyTypes cStmt
     let (cStmt', mapStmt) = replaceStmt
     return (CHMFDefExt (CHMFunDef chmHead (CFunDef cDeclSpecs cDeclr cDecls cStmt' a) b), mapStmt)
+  replacePolyTypes (CFDefExt (CFunDef cDeclSpecs cDeclr cDecls cStmt a)) = do
+    replaceStmt <- replacePolyTypes cStmt
+    let (cStmt', mapStmt) = replaceStmt
+    return (CFDefExt (CFunDef cDeclSpecs cDeclr cDecls cStmt' a), mapStmt)
 
 instance ReplacePolyTypes CStat where
   replacePolyTypes stmt@CLabel{} = return (stmt, Map.empty)
@@ -118,7 +122,7 @@ instance ReplacePolyTypes CStat where
     return (CReturn (Just cExpr') a, exprMap)
   replacePolyTypes cAsm@(CAsm _ _) = return (cAsm, Map.empty)  -- TODO: todo or not todo
 
-instance  ReplacePolyTypes CBlockItem where
+instance  ReplacePolyTypes CBlockItem where  -- TODO:
   replacePolyTypes (CBlockStmt cStat) = do
     (cStat', statMap) <- replacePolyTypes cStat
     return (CBlockStmt cStat', statMap)
@@ -211,7 +215,7 @@ bits28 = 2^(28::Int)
 instance ReplacePolyTypes a => ReplacePolyTypes [a] where
   replacePolyTypes as = do
     replaceAs <- traverse replacePolyTypes as
-    return (fst <$> replaceAs, foldl1 Map.union (snd <$> replaceAs))
+    return (fst <$> replaceAs, foldl Map.union Map.empty (snd <$> replaceAs))
 
 instantiate :: CExtDecl -> Scheme -> IState [CExtDecl]
 instantiate extFunDef scheme = do
@@ -225,7 +229,7 @@ instantiate extFunDef scheme = do
         )
       | (var, real) <- Map.toList polyMap
       ]
-  as <- parse ((expls, []) :: BindGroup, extFunDef')
+  as <- parseReSchemedVirtual scheme extFunDef' (expls, [])
   InstantiateMonad{polyTypes = pTs} <- get
   children <- concat <$> sequence
     [ case name' `Map.lookup` polyMap of
@@ -237,10 +241,34 @@ instantiate extFunDef scheme = do
               else return []
           Nothing ->
             return $ error "this is weird, like really this should not happen.."
-        Nothing -> return $ error "I don't know.. maybe not an error"
+        Nothing -> return []
     | (name' :>: scheme') <- as
     ]
   return $ reverse (extFunDef' : children)
+
+parseReSchemedVirtual :: Scheme -> CExtDecl -> BindGroup -> IState [Assump]
+parseReSchemedVirtual scheme cExtDecl bindGroup = do
+  InstantiateMonad{transformState = tS, parsedAssumps = pAs} <- get
+  let
+    (as, tS') = flip runState tS $
+      case cExtDecl of
+        CFDefExt{} -> transform cExtDecl >>= typeInfer pAs . (bindGroup:)
+        CHMFDefExt{} -> do
+          cExtDecl' <- transformCHMFunDef cExtDecl
+          let [([(name, polyScheme, alts)],[])] = cExtDecl'
+          typeInfer pAs
+            ( bindGroup
+            : [ ( [ ( name ++ mangleScheme scheme
+                    , polyScheme
+                    , alts
+                    )
+                  ]
+                , []
+                )
+              ]
+            )
+  return as
+
 
 syncScopes :: IState ()
 syncScopes = do
@@ -250,7 +278,7 @@ syncScopes = do
 parse :: Transform a => a -> IState [Assump]
 parse a = do
   state@InstantiateMonad{transformState = tS, parsedAssumps = pAs} <- get
-  let (as, tS') = runState (typeInfer pAs a) tS
+  let (as, tS') = runState (transform a >>= typeInfer pAs) tS
   put state
     { transformState = tS'
     , parsedAssumps = as ++ pAs

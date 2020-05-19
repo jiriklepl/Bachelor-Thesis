@@ -27,7 +27,7 @@
 module TypingHaskellInHaskell where
 
 import Data.List(nub, (\\), intersect, union, partition)
-import Control.Monad(msum)
+import Control.Monad
 import qualified Control.Monad.Fail as Fail
 import Control.Applicative(Applicative(..))
 
@@ -229,7 +229,7 @@ modify ce i c = ce{classes = \j -> if i==j then Just c
                                            else classes ce j}
 
 initialEnv :: ClassEnv
-initialEnv  = ClassEnv { classes  = \i -> fail "class not defined",
+initialEnv  = ClassEnv { classes  = const $ fail "class not defined",
                          defaults = [tInteger, tDouble] }
 
 type EnvTransformer = ClassEnv -> Maybe ClassEnv
@@ -381,7 +381,7 @@ find i ((i':>:sc):as) = if i==i' then return sc else find i as
 newtype TI a = TI (Subst -> Int -> (Subst, Int, a))
 
 instance MonadFail TI where
-  fail = Fail.fail
+  fail string = error string
 
 instance Monad TI where
   return x   = TI (\s n -> (s,n,x))
@@ -607,7 +607,10 @@ tiExpl ce as (i, sc, alts)
                  ps'     = filter (not . entail ce qs') (apply s ps)
              (ds,rs)    <- split ce fs gs ps'
              if sc /= sc' then
-                 fail "signature too general"
+                 fail $
+                    "signature `" ++ show sc ++
+                    "` of `" ++ show i ++
+                    "` too general\n  compared to `" ++ show sc' ++ "`"
                else if not (null rs) then
                  fail "context too weak"
                else
@@ -618,16 +621,16 @@ tiExpl ce as (i, sc, alts)
 type Impl   = (Id, [Alt])
 
 restricted   :: [Impl] -> Bool
-restricted bs = any simple bs
+restricted = any simple
  where simple (i,alts) = any (null . fst) alts
 
 tiImpls         :: Infer [Impl] [Assump]
-tiImpls ce as bs = do ts <- mapM (\_ -> newTVar Star) bs
+tiImpls ce as bs = do ts <- mapM (const $ newTVar Star) bs
                       let is    = map fst bs
                           scs   = map toScheme ts
                           as'   = zipWith (:>:) is scs ++ as
                           altss = map snd bs
-                      pss <- sequence (zipWith (tiAlts ce as') altss ts)
+                      pss <- zipWithM (tiAlts ce as') altss ts
                       s   <- getSubst
                       let ps'     = apply s (concat pss)
                           ts'     = apply s ts

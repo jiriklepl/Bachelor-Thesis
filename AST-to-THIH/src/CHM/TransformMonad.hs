@@ -484,7 +484,10 @@ initTransformMonad =
 
 -- | Renames a variable's name depending on which scope we are currently parsing
 renameScoped :: Scope -> Id -> Id
-renameScoped Scope{scopeName = name, scopeId = n} id = name ++ show n ++ ':' : id
+renameScoped Scope{scopeName = name, scopeId = n} id =
+  if n == 0
+    then id
+    else name ++ show n ++ ':' : id
 
 -- | Gets the name of the current switch statement
 getSwitchName :: TState Id
