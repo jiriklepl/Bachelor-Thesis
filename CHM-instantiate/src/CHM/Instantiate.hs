@@ -23,9 +23,9 @@ class Magic a where
 instance Magic CExtDecl where
   magic a@(CHMFDefExt _) = do
     a' <- parse a
-    let (name :>: _ : _) = a'
+    let (name :>: scheme : _) = a'
     state@InstantiateMonad{polyTypes = pTs} <- get
-    put state{polyTypes = Map.insert name (PolyType a Set.empty) pTs}
+    put state{polyTypes = Map.insert name (PolyType a scheme Set.empty) pTs}
     return []
   magic a@(CHMSDefExt _) = do
     _ <- parse a
@@ -35,7 +35,6 @@ instance Magic CExtDecl where
     rtrn <- instantiate a (Forall [] ([] :=> TCon (Tycon "pointlessType" Star)))
     _ <- parse a
     return rtrn
-
 
 instance Magic a => Magic [a] where
   magic as = concat <$> traverse magic as

@@ -4,10 +4,13 @@ module CHM.Transform
   , TransformCHMFunDef (..)
   , TState
   , TransformMonad (..)
+  , GetFunDef(..)
   , runInfer
   , initTransformMonad
   , getTransformResult
   , typeInfer
+  , flattenProgram
+  , storeName
   ) where
 
 import Control.Monad.State
@@ -508,15 +511,19 @@ instance TransformCHMFunDef CExtDecl where
     transformCHMFunDef chmFunDef
 
 instance TransformCHMFunDef CHMFunDef where
-  transformCHMFunDef (CHMFunDef chmHead funDef@(CFunDef _ (CDeclr (Just (Ident sId _ _)) _ _ _ _) _ _ _) _) = do
+  transformCHMFunDef (CHMFunDef chmHead@(CHMHead tVars _ _) funDef@(CFunDef _ (CDeclr (Just (Ident sId _ _)) _ _ _ _) _ _ _) _) = do
     name <- sgName sId
     enterFunction sId
     enterCHMHead
     chmHead' <- transform chmHead
-    rtrn <- transformFunDef funDef name
+    tVars' <- gets (head . typeVariables)
+    let
+      tVarNames = [name ++ ":chc" ++ tId | (Ident tId _ _) <- tVars]
+      parExpls = zipWith (\x y -> (x, toScheme $ TVar y, [])) tVarNames tVars'
+    funDef' <- transformFunDef funDef name
     leaveCHMHead
     leaveFunction
-    return [rtrn]
+    return [funDef' , (parExpls, [])]
 
 instance Transform CStat where
   transform cStat = case cStat of

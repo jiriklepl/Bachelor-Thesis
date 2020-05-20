@@ -17,6 +17,7 @@ type IState = State InstantiateMonad
 
 data PolyType = PolyType
   { definition :: CExtDecl
+  , templateScheme :: Scheme
   , instances  :: Set.Set Id
   }
 
@@ -27,6 +28,27 @@ data InstantiateMonad = InstantiateMonad
   , polyTypes      :: Map.Map Id PolyType
   , polyAnonNumber :: Int
   }
+
+{- |
+  Takes the `Type` needle we want to replace,
+  then the `Type` we want to replace it with
+  and then the `Type` haystack
+-}
+replaceType :: Type -> Type -> Type -> Type
+replaceType n t (TAp t1 t2) = TAp (replaceType n t t1) (replaceType n t t2)
+replaceType n t h
+  | n == h    = t
+  | otherwise = h
+
+variablizePolyType :: Id -> IState Scheme
+variablizePolyType name = do
+  name' <- polyAnonRename name
+  InstantiateMonad{polyTypes = pTs} <- get
+  let (Forall kinds (cs :=> t)) = templateScheme (pTs Map.! name)
+  return . toScheme $ foldl
+    (\a (kind, num) -> replaceType (TGen num) (TVar . flip Tyvar kind $ "@TV" ++ name' ++ "_par:" ++ show num) a)
+    t
+    (zip kinds [0..])
 
 initInstantiateMonad :: InstantiateMonad
 initInstantiateMonad = InstantiateMonad
@@ -220,31 +242,76 @@ instance ReplacePolyTypes a => ReplacePolyTypes [a] where
 instantiate :: CExtDecl -> Scheme -> IState [CExtDecl]
 instantiate extFunDef scheme = do
   syncScopes
+  state@InstantiateMonad{polyTypes = pTs, transformState = tState} <- get
   (extFunDef', polyMap) <- replacePolyTypes extFunDef
-  let
-    expls =
-      [ ( var
-        , toScheme $ TVar $ Tyvar ("@TV:"++var) Star
-        , [([],Var real)]
-        )
-      | (var, real) <- Map.toList polyMap
-      ]
+  expls <- sequence
+    [ do
+        scheme' <- variablizePolyType real
+        return
+          ( var
+          , scheme'
+          , []
+          )
+    | (var, real) <- Map.toList polyMap
+    ]
+  let (_, tState') = runState (traverse storeName $ Map.keys polyMap) tState
+  put state{transformState = tState'}
   as <- parseReSchemedVirtual scheme extFunDef' (expls, [])
-  InstantiateMonad{polyTypes = pTs} <- get
+  put state{transformState = tState}
   children <- concat <$> sequence
     [ case name' `Map.lookup` polyMap of
         (Just name) -> case name `Map.lookup` pTs of
           (Just pType) -> do
             let mangledName = name ++ mangleScheme scheme'
             if mangledName `Set.member` instances pType
-              then addPolyTypeInstance name mangledName >> instantiate (definition pType) scheme'
-              else return []
+              then return []
+              else addPolyTypeInstance name mangledName >> instantiate (definition pType) scheme'
           Nothing ->
-            return $ error "this is weird, like really this should not happen.."
+            return $ error "this is weird, like really.. this should not happen.."
         Nothing -> return []
     | (name' :>: scheme') <- as
     ]
-  return $ reverse (extFunDef' : children)
+  let
+    funName = getFunName extFunDef'
+    tVars =
+      [ if all id (zipWith (==) name' funName)
+          then (drop (length funName + 1) name' :>: scheme')
+          else name' :>: scheme'
+      | (name' :>: scheme') <- as
+      ]
+    -- TODO
+  return $ reverse (rewrite extFunDef' scheme : children)
+
+class ReplaceTVars a where
+  replaceTVars :: Assump -> a -> a
+
+instance ReplaceTVars CExtDecl where
+  replaceTVars as (CHMFDefExt chmFunDef) = error "CONTINUE FROM HERE"
+  -- TODO: replaceTVars as chmFunDef
+
+renameFunDef :: Id -> CFunDef -> CFunDef
+renameFunDef name' (CFunDef a (CDeclr (Just (Ident sId _ pos)) b c d e) f g h) =
+  let new_ident = Ident name' (quad name') pos
+  in CFunDef a (CDeclr (Just new_ident) b c d e) f g h
+
+rewrite :: CExtDecl -> Scheme -> CExtDecl  -- TODO
+rewrite cExtDecl@CFDefExt{} _ = cExtDecl
+rewrite
+  cExtDecl@( CHMFDefExt
+      ( CHMFunDef
+          chmHead
+          funDef@( CFunDef
+              _
+              (CDeclr (Just (Ident name _ _)) _ _ _ _)
+              _
+              _
+              _
+          )
+          _
+      )
+  )
+  scheme = case scheme of
+    _ -> CFDefExt $ renameFunDef (name ++ mangleScheme scheme) funDef
 
 parseReSchemedVirtual :: Scheme -> CExtDecl -> BindGroup -> IState [Assump]
 parseReSchemedVirtual scheme cExtDecl bindGroup = do
@@ -253,22 +320,20 @@ parseReSchemedVirtual scheme cExtDecl bindGroup = do
     (as, tS') = flip runState tS $
       case cExtDecl of
         CFDefExt{} -> transform cExtDecl >>= typeInfer pAs . (bindGroup:)
-        CHMFDefExt{} -> do
+        CHMFDefExt (CHMFunDef (CHMHead tVars _ _) _ _) -> do
           cExtDecl' <- transformCHMFunDef cExtDecl
-          let [([(name, polyScheme, alts)],[])] = cExtDecl'
+          let [([(name, polyScheme, alts)], []), (parExpls, [])] = cExtDecl'
           typeInfer pAs
-            ( bindGroup
-            : [ ( [ ( name ++ mangleScheme scheme
-                    , polyScheme
-                    , alts
-                    )
-                  ]
-                , []
-                )
-              ]
-            )
+            [ bindGroup
+            , ( parExpls ++ [ ( name ++ mangleScheme scheme
+                  , scheme
+                  , alts
+                  )
+                ]
+              , []
+              )
+            ]
   return as
-
 
 syncScopes :: IState ()
 syncScopes = do

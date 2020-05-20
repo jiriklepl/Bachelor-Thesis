@@ -1,7 +1,9 @@
+{-# LANGUAGE FlexibleInstances, FlexibleContexts #-}
 module CHM.TransformMonad
   ( MethodNamed
   , Method(..)
   , TransformMonad(..)
+  , GetFunDef(..)
   , TState
   , initTransformMonad
   , getClassMethods
@@ -958,3 +960,16 @@ registerMethodInstance cId mId mType = do
 
 runTState :: TState a -> (a,TransformMonad)
 runTState a = runState a initTransformMonad
+
+class GetFunDef a where
+  getFunName :: a -> Id
+
+instance GetFunDef CFunDef where
+  getFunName (CFunDef _ (CDeclr (Just (Ident name _ _)) _ _ _ _) _ _ _) = name
+
+instance GetFunDef CHMFunDef where
+  getFunName (CHMFunDef _ cFunDef _) = getFunName cFunDef
+
+instance GetFunDef CExtDecl where
+  getFunName (CHMFDefExt chmFunDef) = getFunName chmFunDef
+  getFunName (CFDefExt cFunDef)     = getFunName cFunDef

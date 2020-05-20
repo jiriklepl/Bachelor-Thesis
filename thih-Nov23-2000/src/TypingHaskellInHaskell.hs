@@ -610,7 +610,7 @@ tiExpl ce as (i, sc, alts)
                  fail $
                     "signature `" ++ show sc ++
                     "` of `" ++ show i ++
-                    "` too general\n  compared to `" ++ show sc' ++ "`"
+                    "` incompatible with `" ++ show sc' ++ "`"
                else if not (null rs) then
                  fail "context too weak"
                else
