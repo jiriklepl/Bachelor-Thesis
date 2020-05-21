@@ -63,12 +63,16 @@ instance Ord Tyvar where
 data Tycon = Tycon Id Kind
              deriving (Eq, Show)
 
+tCharId   = "Char"
+tIntId    = "Int"
+tFloatId  = "Float"
+tDoubleId = "Double"
+
 tUnit    = TCon (Tycon "()" Star)
-tChar    = TCon (Tycon "Char" Star)
-tInt     = TCon (Tycon "Int" Star)
-tInteger = TCon (Tycon "Integer" Star)
-tFloat   = TCon (Tycon "Float" Star)
-tDouble  = TCon (Tycon "Double" Star)
+tChar    = TCon (Tycon tCharId Star)
+tInt     = TCon (Tycon tIntId Star)
+tFloat   = TCon (Tycon tFloatId Star)
+tDouble  = TCon (Tycon tDoubleId Star)
 
 -- CHM additions
 tVoid  = TCon (Tycon "Void" Star)
@@ -230,7 +234,7 @@ modify ce i c = ce{classes = \j -> if i==j then Just c
 
 initialEnv :: ClassEnv
 initialEnv  = ClassEnv { classes  = const $ fail "class not defined",
-                         defaults = [tInteger, tDouble] }
+                         defaults = [tInt, tDouble] }
 
 type EnvTransformer = ClassEnv -> Maybe ClassEnv
 
