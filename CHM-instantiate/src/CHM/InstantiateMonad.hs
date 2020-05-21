@@ -6,11 +6,13 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Char
 
+import Debug.Trace
+
 import Language.C.Syntax
 import Language.C.Data
 import Language.C.Data.Ident (Ident(..))
 
-import TypingHaskellInHaskell
+import TypingHaskellInHaskell hiding (modify)
 import CHM.Transform
 
 type IState = State InstantiateMonad
@@ -20,6 +22,7 @@ data PolyType = PolyType
   , templateScheme :: Scheme
   , instances  :: Set.Set Id
   }
+  deriving (Show)
 
 data InstantiateMonad = InstantiateMonad
   { parsedAssumps  :: [Assump]
@@ -144,10 +147,126 @@ instance ReplacePolyTypes CStat where
     return (CReturn (Just cExpr') a, exprMap)
   replacePolyTypes cAsm@(CAsm _ _) = return (cAsm, Map.empty)  -- TODO: todo or not todo
 
-instance  ReplacePolyTypes CBlockItem where  -- TODO:
+instance ReplacePolyTypes CBlockItem where  -- TODO:
   replacePolyTypes (CBlockStmt cStat) = do
     (cStat', statMap) <- replacePolyTypes cStat
     return (CBlockStmt cStat', statMap)
+  replacePolyTypes (CBlockDecl cDeclr) = do
+    (cDeclr', declrMap) <- replacePolyTypes cDeclr
+    return (CBlockDecl cDeclr', declrMap)
+
+instance ReplacePolyTypes CDecl where
+  replacePolyTypes (CDecl cDeclSpecs cDeclDecls a) = do
+    (cDeclSpecs', declSpecsMap) <- replacePolyTypes cDeclSpecs
+    (cDeclDecls', declDeclsMap) <- replacePolyTypes cDeclDecls
+    return
+      ( CDecl cDeclSpecs' cDeclDecls' a
+      , declSpecsMap `Map.union` declDeclsMap
+      )
+
+instance ReplacePolyTypes CDeclDecl where
+  replacePolyTypes (mDeclr, mInit, mExpr) = do
+    (mDeclr', declrMap) <- replacePolyTypes mDeclr
+    (mInit', initMap) <- replacePolyTypes mInit
+    (mExpr', exprMap) <- replacePolyTypes mExpr
+    return
+      ( (mDeclr', mInit', mExpr')
+      , declrMap `Map.union` initMap `Map.union` exprMap
+      )
+
+instance ReplacePolyTypes CInit where
+  replacePolyTypes (CInitExpr cExpr a) = do
+    (cExpr', exprMap) <- replacePolyTypes cExpr
+    return (CInitExpr cExpr' a, exprMap)
+  replacePolyTypes (CInitList cInitList a) = do
+    (cInitList', initListMap) <- replacePolyTypes cInitList
+    return (CInitList cInitList' a, initListMap)
+
+instance ReplacePolyTypes CInitListItem where
+  replacePolyTypes (cDesigs, cInit) = do
+    (cDesigs', desigsMap) <- replacePolyTypes cDesigs
+    (cInit', initMap) <- replacePolyTypes cInit
+    return
+      ( (cDesigs', cInit')
+      , desigsMap `Map.union` initMap
+      )
+
+instance ReplacePolyTypes CDesignator where
+  replacePolyTypes (CArrDesig cExpr a) = do
+    (cExpr', exprMap) <- replacePolyTypes cExpr
+    return (CArrDesig cExpr' a, exprMap)
+  replacePolyTypes cMemberDesig@CMemberDesig{} =
+    return (cMemberDesig, Map.empty)
+  replacePolyTypes (CRangeDesig cExpr1 cExpr2 a) = do
+    (cExpr1', expr1Map) <- replacePolyTypes cExpr1
+    (cExpr2', expr2Map) <- replacePolyTypes cExpr2
+    return
+      ( CRangeDesig cExpr1' cExpr2' a
+      , expr1Map `Map.union` expr2Map
+      )
+
+instance ReplacePolyTypes CDeclSpec where
+  replacePolyTypes (CTypeSpec cTypeSpec) = do
+    (cTypeSpec', typeSpecMap) <- replacePolyTypes cTypeSpec
+    return (CTypeSpec cTypeSpec', typeSpecMap)
+  replacePolyTypes (CAlignSpec cAlignSpec) = do
+    (cAlignSpec', alignSpecMap) <- replacePolyTypes cAlignSpec
+    return (CAlignSpec cAlignSpec', alignSpecMap)
+  replacePolyTypes a = return (a, Map.empty)
+
+instance ReplacePolyTypes CTypeSpec where
+  replacePolyTypes cTypeDef@(CTypeDef (Ident sId _ pos) a) = do
+    pTs <- gets polyTypes
+    if sId `Map.member` pTs
+      then do
+        sId' <- polyAnonRename sId
+        return (CTypeDef (Ident sId' (quad sId') pos) a, Map.singleton sId' sId)
+      else return (cTypeDef, Map.empty)
+  replacePolyTypes (CTypeOfExpr cExpr a) = do
+    (cExpr', exprMap) <- replacePolyTypes cExpr
+    return (CTypeOfExpr cExpr' a, exprMap)
+  replacePolyTypes (CTypeOfType cDeclr a) = do
+    (cDeclr', exprMap) <- replacePolyTypes cDeclr
+    return (CTypeOfType cDeclr' a, exprMap)
+  replacePolyTypes (CAtomicType cDeclr a) = do
+    (cDeclr', exprMap) <- replacePolyTypes cDeclr
+    return (CAtomicType cDeclr' a, exprMap)
+  replacePolyTypes a = return (a, Map.empty)
+
+instance ReplacePolyTypes CAlignSpec where
+  replacePolyTypes (CAlignAsType cDeclr a) = do
+    (cDeclr', exprMap) <- replacePolyTypes cDeclr
+    return (CAlignAsType cDeclr' a, exprMap)
+  replacePolyTypes (CAlignAsExpr cExpr a) = do
+    (cExpr', exprMap) <- replacePolyTypes cExpr
+    return (CAlignAsExpr cExpr' a, exprMap)
+
+instance ReplacePolyTypes CDeclr where
+  replacePolyTypes (CDeclr mIdent cDerivedDeclrs mStrLit cAttrs a) = do
+    (cDerivedDeclrs', derivedDeclrsMap) <- replacePolyTypes cDerivedDeclrs
+    (cAttrs', attrsMap) <- replacePolyTypes cAttrs
+    return
+      ( CDeclr mIdent cDerivedDeclrs' mStrLit cAttrs' a
+      , derivedDeclrsMap `Map.union` attrsMap
+      )
+  replacePolyTypes (CHMDeclr cDeclr chmPars a ) = error "not yet done"  -- TODO
+
+instance ReplacePolyTypes CAttr where
+  replacePolyTypes (CAttr ident cExprs a) = do
+    (cExprs', exprsMap) <- replacePolyTypes cExprs
+    return (CAttr ident cExprs' a, exprsMap)
+
+instance ReplacePolyTypes CDerivedDeclr where
+  replacePolyTypes (CFunDeclr (Left idents) cAttrs a) =
+    error "not supporting old-style functions"  -- TODO: support old-style functions
+  replacePolyTypes (CFunDeclr (Right (cDeclrs, varArgs)) cAttrs a) = do
+    (cDeclrs', declrsMap) <- replacePolyTypes cDeclrs
+    (cAttrs', attrsMap) <- replacePolyTypes cAttrs
+    return
+      ( CFunDeclr (Right (cDeclrs', varArgs)) cAttrs' a
+      , declrsMap `Map.union` attrsMap
+      )
+  replacePolyTypes a = return (a, Map.empty)
 
 instance ReplacePolyTypes CExpr where
   replacePolyTypes (CComma cExprs a) = do
@@ -198,7 +317,7 @@ instance ReplacePolyTypes CExpr where
     (cExpr', exprMap) <- replacePolyTypes cExpr
     return (CMember cExpr' ident deref a, exprMap)
   replacePolyTypes cVar@(CVar (Ident vId _ pos) a) = do
-    InstantiateMonad{polyTypes = pTs} <- get
+    pTs <- gets polyTypes
     if vId `Map.member` pTs
       then do
         vId' <- polyAnonRename vId
@@ -236,13 +355,18 @@ bits28 = 2^(28::Int)
 
 instance ReplacePolyTypes a => ReplacePolyTypes [a] where
   replacePolyTypes as = do
-    replaceAs <- traverse replacePolyTypes as
-    return (fst <$> replaceAs, foldl Map.union Map.empty (snd <$> replaceAs))
+    as' <- traverse replacePolyTypes as
+    return (fst <$> as', foldl Map.union Map.empty (snd <$> as'))
+
+instance ReplacePolyTypes a => ReplacePolyTypes (Maybe a) where
+  replacePolyTypes Nothing = return (Nothing, Map.empty)
+  replacePolyTypes (Just a) = do
+    (a', aMap) <- replacePolyTypes a
+    return (Just a', aMap)
 
 instantiate :: CExtDecl -> Scheme -> IState [CExtDecl]
 instantiate extFunDef scheme = do
   syncScopes
-  state@InstantiateMonad{polyTypes = pTs, transformState = tState} <- get
   (extFunDef', polyMap) <- replacePolyTypes extFunDef
   expls <- sequence
     [ do
@@ -254,40 +378,298 @@ instantiate extFunDef scheme = do
           )
     | (var, real) <- Map.toList polyMap
     ]
+  tState <- gets transformState
   let (_, tState') = runState (traverse storeName $ Map.keys polyMap) tState
-  put state{transformState = tState'}
+  modify (\state -> state{transformState = tState'})
   as <- parseReSchemedVirtual scheme extFunDef' (expls, [])
-  put state{transformState = tState}
+  state'' <- get
+  put state''{transformState = tState}
   children <- concat <$> sequence
     [ case name' `Map.lookup` polyMap of
-        (Just name) -> case name `Map.lookup` pTs of
-          (Just pType) -> do
-            let mangledName = name ++ mangleScheme scheme'
-            if mangledName `Set.member` instances pType
-              then return []
-              else addPolyTypeInstance name mangledName >> instantiate (definition pType) scheme'
-          Nothing ->
-            return $ error "this is weird, like really.. this should not happen.."
+        (Just name) -> do
+          pTs <- gets polyTypes
+          let
+            pType = pTs Map.! name
+            mangledName = name ++ mangleScheme scheme'
+          if mangledName `Set.member` instances pType
+            then return []
+            else addPolyTypeInstance name mangledName >> instantiate (definition pType) scheme'
         Nothing -> return []
     | (name' :>: scheme') <- as
     ]
   let
     funName = getFunName extFunDef'
-    tVars =
-      [ if all id (zipWith (==) name' funName)
-          then (drop (length funName + 1) name' :>: scheme')
-          else name' :>: scheme'
+    tVarMap = foldl Map.union Map.empty
+      [ if and (zipWith (==) name' funName)
+          then drop (length funName + 1) name' `Map.singleton` scheme'
+          else name' `Map.singleton` scheme'
       | (name' :>: scheme') <- as
       ]
     -- TODO
-  return $ reverse (rewrite extFunDef' scheme : children)
+  let extFunDef'' = replaceTVars (tVarMap, polyMap) extFunDef'
+  return $ children ++ [rewrite extFunDef'' scheme]
 
 class ReplaceTVars a where
-  replaceTVars :: Assump -> a -> a
+  replaceTVars :: (Map.Map Id Scheme, Map.Map Id Id) -> a -> a
 
 instance ReplaceTVars CExtDecl where
-  replaceTVars as (CHMFDefExt chmFunDef) = error "CONTINUE FROM HERE"
-  -- TODO: replaceTVars as chmFunDef
+  replaceTVars as (CHMFDefExt chmFunDef) =
+    CHMFDefExt (replaceTVars as chmFunDef)
+  replaceTVars as (CFDefExt cFunDef) =
+    CFDefExt (replaceTVars as cFunDef)
+
+instance ReplaceTVars CHMFunDef where
+  replaceTVars as (CHMFunDef chmHead cFunDef a) =
+    CHMFunDef chmHead (replaceTVars as cFunDef) a
+
+instance ReplaceTVars CFunDef where
+  replaceTVars as (CFunDef specs cDeclr decls stmt a) =
+    CFunDef
+      (replaceTVars as specs)
+      (replaceTVars as cDeclr)
+      (replaceTVars as decls)
+      (replaceTVars as stmt)
+      a
+
+instance ReplaceTVars CDeclSpec where
+  replaceTVars as (CTypeSpec cTypeSpec) =
+    CTypeSpec (replaceTVars as cTypeSpec)
+  replaceTVars as (CAlignSpec cAlignSpec) =
+    CAlignSpec (replaceTVars as cAlignSpec)  -- TODO
+  replaceTVars _ a = a
+
+schemeToMono :: Scheme -> Id
+schemeToMono = mangleScheme  -- TODO
+
+instance ReplaceTVars CTypeSpec where
+  replaceTVars as cTypeDef@(CTypeDef (Ident sId a b) c) =
+    case sId `Map.lookup` fst as of
+      (Just scheme) ->
+        let monoType = schemeToMono scheme  -- TODO
+        in CTypeDef (Ident monoType (quad monoType) b) c
+      Nothing -> cTypeDef
+  replaceTVars as (CTypeOfExpr cExpr a) =
+    CTypeOfExpr (replaceTVars as cExpr) a
+  replaceTVars as (CTypeOfType cDeclr a) =
+    CTypeOfType (replaceTVars as cDeclr) a
+  replaceTVars as (CAtomicType cDeclr a) =
+    CAtomicType (replaceTVars as cDeclr) a
+  replaceTVars _ a = a
+
+instance ReplaceTVars CAlignSpec where
+  replaceTVars as (CAlignAsType cDeclr a) =
+    CAlignAsType
+      (replaceTVars as cDeclr)
+      a
+  replaceTVars as (CAlignAsExpr cExpr a) =
+    CAlignAsExpr
+      (replaceTVars as cExpr)
+      a
+
+instance ReplaceTVars CDeclr where
+  replaceTVars as (CDeclr mIdent cDerivedDeclrs mStrLit cAttrs a) =
+    CDeclr
+      mIdent
+      (replaceTVars as cDerivedDeclrs)
+      mStrLit
+      (replaceTVars as cAttrs)
+      a
+  replaceTVars as (CHMDeclr cDeclr chmPars a) =
+    CHMDeclr
+      (replaceTVars as cDeclr)
+      (replaceTVars as chmPars)
+      a
+
+instance ReplaceTVars CDerivedDeclr where
+  replaceTVars as (CFunDeclr (Left idents) cAttrs a) =
+    error "not supporting old-style functions"  -- TODO: support old-style functions
+  replaceTVars as (CFunDeclr (Right (cDeclrs, varArgs)) cAttrs a) =
+    CFunDeclr
+      (Right (replaceTVars as cDeclrs, varArgs))
+      (replaceTVars as cAttrs)
+      a
+  -- CPtrDeclr and CArrDeclr
+  replaceTVars _ a = a
+
+instance ReplaceTVars CHMParams where
+  replaceTVars as (CHMParams chmTypes a) =
+    CHMParams (replaceTVars as chmTypes) a
+
+instance ReplaceTVars CHMT where
+  replaceTVars as (CHMCType cDeclSpecs a) =
+    CHMCType (replaceTVars as cDeclSpecs) a
+  replaceTVars as (CHMCDeclType cDeclr a) =
+    CHMCDeclType (replaceTVars as cDeclr) a
+  replaceTVars as (CHMParType chmType chmPars a) =
+    CHMParType
+      (replaceTVars as chmType)
+      (replaceTVars as chmPars)
+      a
+
+type CDeclDecl = (Maybe CDeclr, Maybe CInit, Maybe CExpr)
+
+instance ReplaceTVars CDecl where
+  replaceTVars as (CDecl cDeclSpecs cDeclDecls a) =
+    CDecl
+      (replaceTVars as cDeclSpecs)
+      (replaceTVars as cDeclDecls)
+      a
+
+instance ReplaceTVars CDeclDecl where
+  replaceTVars as (mDeclr, mInit, mExpr) =
+    ( replaceTVars as mDeclr
+    , replaceTVars as mInit
+    , replaceTVars as mExpr
+    )
+
+instance ReplaceTVars CInit where
+  replaceTVars as (CInitExpr cExpr a) =
+    CInitExpr (replaceTVars as cExpr) a
+  replaceTVars as (CInitList cInitList a) =
+    CInitList (replaceTVars as cInitList) a
+
+type CInitListItem = ([CDesignator], CInit)
+
+instance ReplaceTVars CInitListItem where
+  replaceTVars as (cDesignators, cInit) =
+    (replaceTVars as cDesignators, replaceTVars as cInit)
+
+instance ReplaceTVars CDesignator where
+  replaceTVars as (CArrDesig cExpr a) =
+    CArrDesig (replaceTVars as cExpr) a
+  replaceTVars as cMemberDesig@CMemberDesig{} = cMemberDesig
+  replaceTVars as (CRangeDesig cExpr1 cExpr2 a) =
+    CRangeDesig
+      (replaceTVars as cExpr1)
+      (replaceTVars as cExpr2)
+      a
+
+instance ReplaceTVars CStat where
+  replaceTVars as (CLabel ident cStmt cAttrs a) =
+    CLabel ident (replaceTVars as cStmt) (replaceTVars as cAttrs) a
+  replaceTVars as (CCase cExpr cStmt a) =
+    CCase (replaceTVars as cExpr) (replaceTVars as cStmt) a
+  replaceTVars as (CCases cExpr1 cExpr2 cStmt a) =
+    CCases
+      (replaceTVars as cExpr1)
+      (replaceTVars as cExpr2)
+      (replaceTVars as cStmt)
+      a
+  replaceTVars as (CDefault cStmt a) =
+    CDefault (replaceTVars as cStmt) a
+  replaceTVars as (CExpr mExpr a) =
+    CExpr (replaceTVars as mExpr) a
+  replaceTVars as (CCompound idents cBlockItems a) =
+    CCompound idents (replaceTVars as cBlockItems) a
+  replaceTVars as (CIf cExpr cStmt mStmt a) =
+    CIf
+      (replaceTVars as cExpr)
+      (replaceTVars as cStmt)
+      (replaceTVars as mStmt)
+      a
+  replaceTVars as CFor{} = error "do later"  -- TODO
+  replaceTVars as cGoto@CGoto{} = cGoto
+  replaceTVars as (CGotoPtr cExpr a) =
+    CGotoPtr (replaceTVars as cExpr) a
+  replaceTVars as cCont@CCont{} = cCont
+  replaceTVars as cBreak@CBreak{} = cBreak
+  replaceTVars as (CReturn mExpr a) =
+    CReturn
+      (replaceTVars as mExpr)
+      a
+  replaceTVars as cAsm@CAsm{} = cAsm  -- TODO
+
+instance ReplaceTVars CBlockItem where
+  replaceTVars as (CBlockStmt cStmt) = CBlockStmt (replaceTVars as cStmt)
+  replaceTVars as (CBlockDecl cDeclr) = CBlockDecl (replaceTVars as cDeclr)
+  replaceTVars as (CNestedFunDef cFunDef) = CNestedFunDef (replaceTVars as cFunDef)
+
+instance ReplaceTVars CAttr where
+  replaceTVars as (CAttr ident cExprs a) =
+    CAttr ident (replaceTVars as cExprs) a
+
+instance ReplaceTVars CExpr where
+  replaceTVars as (CComma cExprs a) =
+    CComma (replaceTVars as cExprs) a
+  replaceTVars as (CAssign assOp cExpr1 cExpr2 a) =
+    CAssign
+      assOp
+      (replaceTVars as cExpr1)
+      (replaceTVars as cExpr2)
+      a
+  replaceTVars as (CCond cExpr1 mExpr cExpr2 a) =
+    CCond
+      (replaceTVars as cExpr1)
+      (replaceTVars as mExpr)
+      (replaceTVars as cExpr2)
+      a
+  replaceTVars as (CBinary binOp cExpr1 cExpr2 a) =
+    CBinary
+      binOp
+      (replaceTVars as cExpr1)
+      (replaceTVars as cExpr2)
+      a
+  replaceTVars as (CCast cDeclr cExpr a) =
+    CCast
+      (replaceTVars as cDeclr)
+      (replaceTVars as cExpr)
+      a
+  replaceTVars as (CUnary unOp cExpr a) =
+    CUnary
+      unOp
+      (replaceTVars as cExpr)
+      a
+  replaceTVars as (CSizeofExpr cExpr a) =
+    CSizeofExpr (replaceTVars as cExpr) a
+  replaceTVars as (CSizeofType cDeclr a) =
+    CSizeofType (replaceTVars as cDeclr) a
+  replaceTVars as (CAlignofExpr cExpr a) =
+    CAlignofExpr (replaceTVars as cExpr) a
+  replaceTVars as (CAlignofType cDeclr a) =
+    CAlignofType (replaceTVars as cDeclr) a
+  replaceTVars as (CComplexReal cExpr a) =
+    CComplexReal (replaceTVars as cExpr) a
+  replaceTVars as (CComplexImag cExpr a) =
+    CComplexImag (replaceTVars as cExpr) a
+  replaceTVars as (CIndex cExpr1 cExpr2 a) =
+    CIndex
+      (replaceTVars as cExpr1)
+      (replaceTVars as cExpr2)
+      a
+  replaceTVars as (CCall cExpr cExprs a) =
+    CCall
+      (replaceTVars as cExpr)
+      (replaceTVars as cExprs)
+      a
+  replaceTVars as (CMember cExpr ident deref a) =
+    CMember (replaceTVars as cExpr) ident deref a
+  replaceTVars as cVar@(CVar (Ident sId _ pos) a) =
+    case sId `Map.lookup` fst as of
+      Just scheme ->
+        let name = (snd as Map.! sId) ++ mangleScheme scheme
+        in CVar (Ident name (quad name) pos) a
+      Nothing -> cVar
+  replaceTVars as cConst@CConst{} = cConst
+  replaceTVars as (CCompoundLit cDeclr cInitList a) =
+    CCompoundLit
+      (replaceTVars as cDeclr)
+      (replaceTVars as cInitList)
+      a
+  replaceTVars as CGenericSelection{} =
+    error "not supporting c generic selections"  -- TODO: maybe yes
+  replaceTVars as (CStatExpr cStmt a) =
+    CStatExpr
+      (replaceTVars as cStmt)
+      a
+  replaceTVars as cLabAddrExpr@CLabAddrExpr{} = cLabAddrExpr
+  replaceTVars as CBuiltinExpr{} =
+    error "not supporting builinThing"  -- TODO: maybe do support
+
+instance ReplaceTVars b => ReplaceTVars [b] where
+  replaceTVars as bs = replaceTVars as <$> bs
+
+instance ReplaceTVars b => ReplaceTVars (Maybe b) where
+  replaceTVars as m = replaceTVars as <$> m
 
 renameFunDef :: Id -> CFunDef -> CFunDef
 renameFunDef name' (CFunDef a (CDeclr (Just (Ident sId _ pos)) b c d e) f g h) =
@@ -353,17 +735,34 @@ parse a = do
 mangleScheme :: Scheme -> Id
 mangleScheme (Forall [] ([] :=> t)) = mangleType t
 
+builtinTypes :: Map.Map Id Id
+builtinTypes = Map.fromList
+  [ (tCharId, "char")
+  , (tIntId, "int")
+  , (tFloatId, "float")
+  , (tDoubleId, "double")
+  ]
+
 mangleType :: Type -> Id
-{-
-  mangleType (TAp (TAp tArrow t1) t2) =
-    let
-      t1' = mangleType t1
-      t2' = mangleType t2
-    in "fn_" ++ show (length t1') ++ t1' ++ show (length t2') ++ t2'
--}
-mangleType (TCon (Tycon id _)) = "TC" ++ show (length id) ++ id
+mangleType (TCon (Tycon id _)) = case id `Map.lookup` builtinTypes of
+  Nothing -> "TC" ++ show (length id) ++ id
+  Just cName -> cName
+
+mangleType (TAp (TAp tArrow t1) t2) =
+  let
+    t1' = manglePars t1
+    t2' = mangleType t2
+  in "TF" ++ show (length t1') ++ t1' ++ show (length t2') ++ t2'
 mangleType (TAp t1 t2) =
   let
     t1' = mangleType t1
     t2' = mangleType t2
-  in show (length t1') ++ t1' ++ show (length t2') ++ t2'
+  in "TA" ++ show (length t1') ++ t1' ++ show (length t2') ++ t2'
+
+manglePars :: Type -> Id
+manglePars TCon{} = ""
+manglePars (TAp t1 t2) =
+  let
+    t1' = manglePars t1
+    t2' = mangleType t2
+  in t1' ++ t2'
