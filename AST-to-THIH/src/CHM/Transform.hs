@@ -518,7 +518,7 @@ instance TransformCHMFunDef CHMFunDef where
     chmHead' <- transform chmHead
     tVars' <- gets (head . typeVariables)
     let
-      tVarNames = [name ++ ":chc" ++ tId | (Ident tId _ _) <- tVars]
+      tVarNames = [name ++ ':' : tId | (Ident tId _ _) <- tVars]
       parExpls = zipWith (\x y -> (x, toScheme $ TVar y, [])) tVarNames tVars'
     funDef' <- transformFunDef funDef name
     leaveCHMHead
