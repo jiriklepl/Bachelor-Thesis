@@ -5,6 +5,7 @@ module CHM.Transform
   , TState
   , TransformMonad (..)
   , GetFunName(..)
+  , tPointer
   , runInfer
   , initTransformMonad
   , createParamsType

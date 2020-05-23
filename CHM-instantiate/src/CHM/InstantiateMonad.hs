@@ -441,7 +441,7 @@ instantiate extFunDef scheme = do
           pTs <- gets polyTypes
           let
             pType = pTs Map.! name
-            mangledName = name ++ mangleScheme scheme'
+            mangledName = "__" ++ name ++ mangle scheme'
           if mangledName `Set.member` pTypeInstances pType
             then return []
             else addPolyTypeInstance name mangledName >> instantiate (pTypeDefinition pType) scheme'
@@ -492,7 +492,7 @@ instance ReplaceTVars CDeclSpec where
   replaceTVars _ a = a
 
 schemeToMono :: Scheme -> Id
-schemeToMono = mangleScheme  -- TODO
+schemeToMono = ('_' :) . mangle  -- TODO
 
 instance ReplaceTVars CTypeSpec where
   replaceTVars as cTypeDef@(CTypeDef (Ident sId a b) c) =
@@ -699,7 +699,7 @@ instance ReplaceTVars CExpr where
   replaceTVars as cVar@(CVar (Ident sId _ pos) a) =
     case sId `Map.lookup` fst as of
       Just scheme ->
-        let name = (snd as Map.! sId) ++ mangleScheme scheme
+        let name = "__" ++ (snd as Map.! sId) ++ mangle scheme
         in CVar (Ident name (quad name) pos) a
       Nothing -> cVar
   replaceTVars as cConst@CConst{} = cConst
@@ -755,7 +755,7 @@ rewrite
           _
       )
   )
-  scheme = return . CFDefExt $ renameFunDef (name ++ mangleScheme scheme) funDef  -- TODO
+  scheme = return . CFDefExt $ renameFunDef ("__" ++ name ++ mangle scheme) funDef  -- TODO
 
 rewrite cExtDecl scheme@(Forall [] (cs :=> t)) = do
   let name = getFunName cExtDecl
@@ -772,7 +772,7 @@ rewrite cExtDecl scheme@(Forall [] (cs :=> t)) = do
       ]
   case substs of
     [] -> error "cannot create the instance"
-    [iDef] -> return . CFDefExt $ renameFunDef (name ++ mangleScheme scheme) (getFunDef iDef)
+    [iDef] -> return . CFDefExt $ renameFunDef ("__" ++ name ++ mangle scheme) (getFunDef iDef)
     _ -> error "I don't know yet"  -- TODO
 
 parseReSchemedVirtual :: Scheme -> CExtDecl -> BindGroup -> IState [Assump]
@@ -787,7 +787,7 @@ parseReSchemedVirtual scheme cExtDecl bindGroup = do
           let [([(name, polyScheme, alts)], []), (parExpls, [])] = cExtDecl'
           typeInfer pAs
             [ bindGroup
-            , ( parExpls ++ [ ( name ++ mangleScheme scheme
+            , ( parExpls ++ [ ("__" ++ name ++ mangle scheme
                   , scheme
                   , alts
                   )
@@ -841,11 +841,15 @@ mangleType (TAp (TAp tArrow t1) t2) =
     t1' = manglePars t1
     t2' = mangleType t2
   in "TF" ++ show (length t1') ++ t1' ++ show (length t2') ++ t2'
-mangleType (TAp t1 t2) =
-  let
-    t1' = mangleType t1
-    t2' = mangleType t2
-  in "TA" ++ show (length t1') ++ t1' ++ show (length t2') ++ t2'
+
+mangleType (TAp t1 t2)
+  | t1 == tPointer = let
+      t1' = mangleType t2
+    in "TP" ++ show (length t1') ++ t1'
+  | otherwise = let
+      t1' = mangleType t1
+      t2' = mangleType t2
+    in "TA" ++ show (length t1') ++ t1' ++ show (length t2') ++ t2'
 
 manglePars :: Type -> Id
 manglePars TCon{} = ""
@@ -854,3 +858,12 @@ manglePars (TAp t1 t2) =
     t1' = manglePars t1
     t2' = mangleType t2
   in t1' ++ t2'
+
+class Mangle a where
+  mangle :: a -> Id
+
+instance Mangle Type where
+  mangle t = "_" ++ mangleType t
+
+instance Mangle Scheme where
+  mangle s = "_" ++ mangleScheme s
