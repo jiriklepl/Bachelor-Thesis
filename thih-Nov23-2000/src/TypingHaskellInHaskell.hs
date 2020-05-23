@@ -45,14 +45,14 @@ enumId n = "v" ++ show n
 -----------------------------------------------------------------------------
 
 data Kind  = Star | Kfun Kind Kind
-             deriving (Eq, Show)
+             deriving (Eq, Show, Ord)
 
 -----------------------------------------------------------------------------
 -- Type:		Types
 -----------------------------------------------------------------------------
 
 data Type  = TVar Tyvar | TCon Tycon | TAp Type Type | TGen Int
-             deriving (Eq, Show)
+             deriving (Eq, Show, Ord)
 
 data Tyvar = Tyvar Id Kind
              deriving (Eq, Show)
@@ -62,6 +62,9 @@ instance Ord Tyvar where
 
 data Tycon = Tycon Id Kind
              deriving (Eq, Show)
+
+instance Ord Tycon where
+  compare (Tycon id1 _) (Tycon id2 _) = compare id1 id2
 
 tCharId   = "Char"
 tIntId    = "Int"
@@ -99,7 +102,7 @@ list       :: Type -> Type
 list        = (tList `TAp`)
 
 pair       :: Type -> Type -> Type
-pair a b    = TAp (TAp tTuple2 a) b
+pair        = TAp . TAp tTuple2
 
 class HasKind t where
   kind :: t -> Kind
@@ -171,7 +174,7 @@ mgu t1 t2             = fail "types do not unify"
 
 varBind u t | t == TVar u      = return nullSubst
             | u `elem` tv t    = fail "occurs check fails"
-            | kind u /= kind t = fail "kinds do not match"
+            | kind u /= kind t = fail $ "kinds of `" ++ show u ++ "` and `" ++ show t ++ "` do not match"
             | otherwise        = return (u +-> t)
 
 match :: MonadFail m => Type -> Type -> m Subst
@@ -516,6 +519,8 @@ data Expr = Var   Id
           | Const Assump
           | Ap    Expr Expr
           | Let   BindGroup Expr
+          | Lambda Alt
+          | LambdaScheme Scheme Alt
           deriving(Show)
 
 tiExpr                       :: Infer Expr Type
@@ -534,6 +539,13 @@ tiExpr ce as (Ap e f)         = do (ps,te) <- tiExpr ce as e
 tiExpr ce as (Let bg e)       = do (ps, as') <- tiBindGroup ce as bg
                                    (qs, t)   <- tiExpr ce (as' ++ as) e
                                    return (ps ++ qs, t)
+
+tiExpr ce as (Lambda alt)          = tiAlt ce as alt
+tiExpr ce as (LambdaScheme sc alt) = do (qs :=> te) <- freshInst sc
+                                        (ps, tf) <- tiAlt ce as alt
+                                        unify te tf
+                                        return (ps ++ qs, te)
+
 
 -----------------------------------------------------------------------------
 

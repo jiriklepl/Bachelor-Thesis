@@ -3,7 +3,7 @@ module CHM.TransformMonad
   ( MethodNamed
   , Method(..)
   , TransformMonad(..)
-  , GetFunDef(..)
+  , GetFunName(..)
   , TState
   , initTransformMonad
   , getClassMethods
@@ -70,6 +70,7 @@ module CHM.TransformMonad
   , chmAddAlias
   , chmAddClass
   , leaveCHMHead
+  , replaceAliases
   , chmScheme
   , renameScoped
   , getSwitchName
@@ -84,6 +85,7 @@ module CHM.TransformMonad
   , getFunctionReturns
   , takeNKind
   , getTupleOp
+  , tupleize
   , getTupleCon
   , getTuple
   , getMember
@@ -91,6 +93,7 @@ module CHM.TransformMonad
   , registerCHMMember
   , createParamsType
   , registerStruct
+  , getStructKind
   , registerClass
   , registerClassDeclaration
   , getMethodScheme
@@ -125,13 +128,17 @@ initScope name id = Scope
 
 data Method = Method
   { methodScheme :: Scheme
-  , methodInstances :: Set.Set Id
+  , methodInstances :: Set.Set Type
   }
 
 initMethod :: Scheme -> Method
 initMethod s = Method
   { methodScheme = s
   , methodInstances = Set.empty
+  }
+
+data Struct = Struct
+  { structKind :: Kind
   }
 
 data UserClass = UserClass
@@ -166,7 +173,7 @@ data TransformMonad = TransformMonad
     -}
   , lastScope :: Int
     -- ^ the number of the last created scope
-  , registeredStructs :: Set.Set Id
+  , registeredStructs :: Map.Map Id Struct
     -- ^ names of all created structs
   , anonymousCounter :: Int
     -- ^ number of the NEXT anonymous variable
@@ -389,7 +396,7 @@ initTransformMonad =
     , createdClasses = Set.empty
     , nested = [initScope "global" 0]
     , lastScope = 0
-    , registeredStructs = Set.empty
+    , registeredStructs = Map.empty
     , switchScopes = []
     , functionScopes = []
     , anonymousCounter = 0
@@ -641,6 +648,7 @@ replaceAliases (TAp t1 t2) = do
 -- for TGen(?) and mainly TCon
 replaceAliases t = return t
 
+
 -- | Replaces type annotations with generic types and constraints (see 'quantify')
 chmScheme :: Type -> TState Scheme
 chmScheme t = do
@@ -654,7 +662,14 @@ chmScheme t = do
     (types, _) = filterTypes t' (Set.empty, tVars)
     (types', _, classes) = filterClasses (types, head vCs, [])
   return $ quantify (Set.toList types') $ classes :=> t'
-
+{-
+chmScheme :: Type -> TState Scheme
+chmScheme t = do
+  tVs <- gets typeVariables
+  vCs <- gets variableClasses
+  t' <- replaceAliases t
+  return $ quantify (head tVs) (head vCs :=> t')
+-}
 -- | Enters a new 'Scope' (c scope)
 enterScope :: Id -> TState ()
 enterScope id = do
@@ -869,12 +884,28 @@ createParamsType ts = foldl TAp (getTupleOp $ length ts) ts
 -- | Makes a new entry for the given struct in the 'TransformMonad'
 registerStruct :: Id -> TState Bool
 registerStruct id = do
-  state@TransformMonad{registeredStructs=rSs} <- get
-  if id `Set.member` rSs then
+  state@TransformMonad{registeredStructs = rSs, typeVariables = tVs} <- get
+  if id `Map.member` rSs then
     return False
   else do
-    put state{registeredStructs=id `Set.insert` rSs}
+    put state
+      { registeredStructs =
+          Map.insert
+            id
+            Struct
+              { structKind =
+                  if null tVs
+                    then Star
+                    else takeNKind (length $ head tVs)
+              }
+            rSs
+      }
     return True
+
+-- | returns the kind of a struct
+getStructKind :: Id -> TState Kind
+getStructKind id =
+  gets (structKind . (Map.! id) . registeredStructs)
 
 -- | Makes a new entry in the class environment and in the 'TransformMonad'
 registerClass :: Id -> TState Bool
@@ -942,9 +973,9 @@ registerMethodInstance cId mId mType = do
                     { methodInstances =
                         let instances = methodInstances method
                         in
-                          if name `Set.member` instances
+                          if mType `Set.member` instances
                           then error "method's instance already defined"
-                          else name `Set.insert` instances
+                          else mType `Set.insert` instances
                     }
                   )
                   mId
@@ -961,15 +992,19 @@ registerMethodInstance cId mId mType = do
 runTState :: TState a -> (a,TransformMonad)
 runTState a = runState a initTransformMonad
 
-class GetFunDef a where
+class GetFunName a where
   getFunName :: a -> Id
 
-instance GetFunDef CFunDef where
+instance GetFunName CFunDef where
   getFunName (CFunDef _ (CDeclr (Just (Ident name _ _)) _ _ _ _) _ _ _) = name
 
-instance GetFunDef CHMFunDef where
+instance GetFunName CHMFunDef where
   getFunName (CHMFunDef _ cFunDef _) = getFunName cFunDef
 
-instance GetFunDef CExtDecl where
+instance GetFunName CExtDecl where
   getFunName (CHMFDefExt chmFunDef) = getFunName chmFunDef
   getFunName (CFDefExt cFunDef)     = getFunName cFunDef
+  getFunName (CDeclExt cFunDecl)    = getFunName cFunDecl
+
+instance GetFunName CDecl where
+  getFunName (CDecl _ [(Just (CDeclr (Just (Ident name _ _)) (CFunDeclr{} : _) _ _ _), Nothing, Nothing)] _) = name

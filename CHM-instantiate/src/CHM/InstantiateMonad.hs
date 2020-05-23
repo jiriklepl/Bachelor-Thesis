@@ -4,7 +4,9 @@ module CHM.InstantiateMonad where
 import Control.Monad.State
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import qualified Data.List as List
 import Data.Char
+import Data.Maybe
 
 import Debug.Trace
 
@@ -18,11 +20,27 @@ import CHM.Transform
 type IState = State InstantiateMonad
 
 data PolyType = PolyType
-  { definition :: CExtDecl
-  , templateScheme :: Scheme
-  , instances  :: Set.Set Id
+  { pTypeDefinition :: CExtDecl
+  , pTypeDefinitions :: Map.Map Type CExtDecl
+  , pTypeClass :: Maybe Id
+  , pTypeScheme :: Scheme
+  , pTypeInstances  :: Set.Set Id
   }
   deriving (Show)
+
+
+initPolyType :: Scheme -> CExtDecl -> PolyType
+initPolyType scheme def = PolyType
+  { pTypeDefinition = def
+  , pTypeDefinitions = Map.empty
+  , pTypeClass = Nothing
+  , pTypeScheme = scheme
+  , pTypeInstances = Set.empty
+  }
+
+initClassPolyType :: Id -> Scheme -> CExtDecl -> PolyType
+initClassPolyType cName fScheme fDef =
+  (initPolyType fScheme fDef){pTypeClass = Just cName}
 
 data InstantiateMonad = InstantiateMonad
   { parsedAssumps  :: [Assump]
@@ -31,6 +49,37 @@ data InstantiateMonad = InstantiateMonad
   , polyTypes      :: Map.Map Id PolyType
   , polyAnonNumber :: Int
   }
+
+initInstantiateMonad :: InstantiateMonad
+initInstantiateMonad = InstantiateMonad
+  { parsedAssumps  = []
+  , transformState = initTransformMonad
+  , lastScopeCopy  = 0
+  , polyTypes      = Map.empty
+  , polyAnonNumber = 0
+  }
+
+createPolyType :: Id -> Scheme -> CExtDecl -> IState ()
+createPolyType fName fScheme fDef = do
+    state@InstantiateMonad{polyTypes = pTs} <- get
+    put state {polyTypes = Map.insert fName (initPolyType fScheme fDef) pTs}
+
+createClassPolyType :: Id -> Id -> Scheme -> CExtDecl -> IState ()
+createClassPolyType cName fName fScheme fDef = do
+    state@InstantiateMonad{polyTypes = pTs} <- get
+    put state {polyTypes = Map.insert fName (initClassPolyType cName fScheme fDef) pTs}
+
+addPTypeInstance :: Id -> Type -> CExtDecl -> IState ()
+addPTypeInstance fName iType iDef = do
+    state@InstantiateMonad{polyTypes = pTs} <- get
+    put state
+      { polyTypes = Map.adjust
+          (\pType ->
+            pType{pTypeDefinitions = Map.insert iType iDef $ pTypeDefinitions pType}
+          )
+          fName
+          pTs
+      }
 
 {- |
   Takes the `Type` needle we want to replace,
@@ -43,24 +92,24 @@ replaceType n t h
   | n == h    = t
   | otherwise = h
 
+replaceGen :: Id -> [Kind] -> Type -> Type
+replaceGen name kinds t = flip foldl t
+  (\a (kind, num) ->
+    replaceType
+      (TGen num)
+      (TVar . flip Tyvar kind $ "@TV" ++ name ++ "_par:" ++ show num)
+      a
+  )
+  (zip kinds [0..])
+
 variablizePolyType :: Id -> IState Scheme
 variablizePolyType name = do
   name' <- polyAnonRename name
   InstantiateMonad{polyTypes = pTs} <- get
-  let (Forall kinds (cs :=> t)) = templateScheme (pTs Map.! name)
-  return . toScheme $ foldl
-    (\a (kind, num) -> replaceType (TGen num) (TVar . flip Tyvar kind $ "@TV" ++ name' ++ "_par:" ++ show num) a)
-    t
-    (zip kinds [0..])
-
-initInstantiateMonad :: InstantiateMonad
-initInstantiateMonad = InstantiateMonad
-  { parsedAssumps  = []
-  , transformState = initTransformMonad
-  , lastScopeCopy  = 0
-  , polyTypes      = Map.empty
-  , polyAnonNumber = 0
-  }
+  let
+    (Forall kinds (cs :=> t)) = pTypeScheme (pTs Map.! name)
+    t' = replaceGen name' kinds t
+  return $ Forall [] ([IsIn cId (replaceGen name' kinds cT) | IsIn cId cT <-cs] :=> t')
 
 polyAnonRename :: Id -> IState Id
 polyAnonRename id = do
@@ -72,7 +121,7 @@ addPolyTypeInstance :: Id -> Id -> IState ()
 addPolyTypeInstance pId iId = do
   state@InstantiateMonad{polyTypes = pTs} <- get
   put state
-    { polyTypes = Map.adjust (\pType -> pType{instances = iId `Set.insert` instances pType}) pId pTs
+    { polyTypes = Map.adjust (\pType -> pType{pTypeInstances = iId `Set.insert` pTypeInstances pType}) pId pTs
     }
 
 class ReplacePolyTypes a where
@@ -87,6 +136,8 @@ instance ReplacePolyTypes CExtDecl where  -- TODO: I think this needs some polis
     replaceStmt <- replacePolyTypes cStmt
     let (cStmt', mapStmt) = replaceStmt
     return (CFDefExt (CFunDef cDeclSpecs cDeclr cDecls cStmt' a), mapStmt)
+  replacePolyTypes cDeclExt@CDeclExt{} = return (cDeclExt, Map.empty)
+  replacePolyTypes a = error $ "non-exhaustive for " ++ show a
 
 instance ReplacePolyTypes CStat where
   replacePolyTypes stmt@CLabel{} = return (stmt, Map.empty)
@@ -391,9 +442,9 @@ instantiate extFunDef scheme = do
           let
             pType = pTs Map.! name
             mangledName = name ++ mangleScheme scheme'
-          if mangledName `Set.member` instances pType
+          if mangledName `Set.member` pTypeInstances pType
             then return []
-            else addPolyTypeInstance name mangledName >> instantiate (definition pType) scheme'
+            else addPolyTypeInstance name mangledName >> instantiate (pTypeDefinition pType) scheme'
         Nothing -> return []
     | (name' :>: scheme') <- as
     ]
@@ -407,7 +458,7 @@ instantiate extFunDef scheme = do
       ]
     -- TODO
   let extFunDef'' = replaceTVars (tVarMap, polyMap) extFunDef'
-  return $ children ++ [rewrite extFunDef'' scheme]
+  (children ++) . pure  <$> rewrite extFunDef'' scheme
 
 class ReplaceTVars a where
   replaceTVars :: (Map.Map Id Scheme, Map.Map Id Id) -> a -> a
@@ -417,6 +468,8 @@ instance ReplaceTVars CExtDecl where
     CHMFDefExt (replaceTVars as chmFunDef)
   replaceTVars as (CFDefExt cFunDef) =
     CFDefExt (replaceTVars as cFunDef)
+  replaceTVars as (CDeclExt cDecl) =
+    CDeclExt (replaceTVars as cDecl)
 
 instance ReplaceTVars CHMFunDef where
   replaceTVars as (CHMFunDef chmHead cFunDef a) =
@@ -676,8 +729,18 @@ renameFunDef name' (CFunDef a (CDeclr (Just (Ident sId _ pos)) b c d e) f g h) =
   let new_ident = Ident name' (quad name') pos
   in CFunDef a (CDeclr (Just new_ident) b c d e) f g h
 
-rewrite :: CExtDecl -> Scheme -> CExtDecl  -- TODO
-rewrite cExtDecl@CFDefExt{} _ = cExtDecl
+class GetFunDef a where
+  getFunDef :: a -> CFunDef
+
+instance GetFunDef CExtDecl where
+  getFunDef (CFDefExt cFunDef) = cFunDef
+  getFunDef (CHMFDefExt chmFunDef) = getFunDef chmFunDef
+
+instance GetFunDef CHMFunDef where
+  getFunDef (CHMFunDef _ cFunDef _) = cFunDef
+
+rewrite :: CExtDecl -> Scheme -> IState CExtDecl  -- TODO
+rewrite cExtDecl@CFDefExt{} _ = return cExtDecl
 rewrite
   cExtDecl@( CHMFDefExt
       ( CHMFunDef
@@ -692,8 +755,25 @@ rewrite
           _
       )
   )
-  scheme = case scheme of
-    _ -> CFDefExt $ renameFunDef (name ++ mangleScheme scheme) funDef
+  scheme = return . CFDefExt $ renameFunDef (name ++ mangleScheme scheme) funDef  -- TODO
+
+rewrite cExtDecl scheme@(Forall [] (cs :=> t)) = do
+  let name = getFunName cExtDecl
+  pType <- gets ((Map.! name) . polyTypes)
+  let
+    Just cId = pTypeClass pType
+    Just (IsIn _ cT) = List.find (\(IsIn cId' t') -> cId' == cId) cs
+    substs = catMaybes
+      [ if c == cT
+           -- || not (null . runTI $ mgu cT c)
+          then Just def
+          else Nothing
+      | (c, def) <- Map.toList (pTypeDefinitions pType)
+      ]
+  case substs of
+    [] -> error "cannot create the instance"
+    [iDef] -> return . CFDefExt $ renameFunDef (name ++ mangleScheme scheme) (getFunDef iDef)
+    _ -> error "I don't know yet"  -- TODO
 
 parseReSchemedVirtual :: Scheme -> CExtDecl -> BindGroup -> IState [Assump]
 parseReSchemedVirtual scheme cExtDecl bindGroup = do
@@ -715,12 +795,20 @@ parseReSchemedVirtual scheme cExtDecl bindGroup = do
               , []
               )
             ]
+        CDeclExt{} -> transform cExtDecl >>= typeInfer pAs . (bindGroup:)
   return as
 
 syncScopes :: IState ()
 syncScopes = do
   state@InstantiateMonad{transformState = tS} <- get
   put state {lastScopeCopy = lastScope tS}
+
+runTState :: TState a -> IState a
+runTState a = do
+  state@InstantiateMonad{transformState = tS} <- get
+  let (a', tS') = runState a tS
+  put state{transformState = tS'}
+  return a'
 
 parse :: Transform a => a -> IState [Assump]
 parse a = do
@@ -733,7 +821,7 @@ parse a = do
   return as
 
 mangleScheme :: Scheme -> Id
-mangleScheme (Forall [] ([] :=> t)) = mangleType t
+mangleScheme (Forall [] (cs :=> t)) = mangleType t
 
 builtinTypes :: Map.Map Id Id
 builtinTypes = Map.fromList

@@ -4,14 +4,18 @@ module CHM.Transform
   , TransformCHMFunDef (..)
   , TState
   , TransformMonad (..)
-  , GetFunDef(..)
+  , GetFunName(..)
   , runInfer
   , initTransformMonad
+  , createParamsType
+  , translateCHMType
   , getTransformResult
   , typeInfer
   , flattenProgram
   , storeName
   ) where
+
+import Debug.Trace
 
 import Control.Monad.State
 import Control.Monad((>=>), when)
@@ -84,8 +88,9 @@ reassemble bindGroup@([(name, scheme, [(pats, Let (expls, impls) returnValue)])]
         return $ foldl Ap tuple constrPars : others
       innerName = "@INNER_" ++ eName
     bindGroup' <- reassemble ([(innerName, eScheme', [(PVar eName : pats, Let (rest, impls) returnValue)])], [])
+    let ([(iName, iScheme, [iAlt])], []) = bindGroup'
     others <- transformPars pats
-    return . flattenProgram $ [([(name, scheme, [(pats, foldl Ap (Var innerName) (expr : others))])], []), bindGroup']
+    return ([(name, scheme, [(pats, foldl Ap (LambdaScheme iScheme iAlt) (expr : others))])], [])
   [] -> case impls of
     [] -> return ([(name, scheme, [(pats, returnValue)])], [])
     _ -> return bindGroup
@@ -117,7 +122,19 @@ instance CHMSchemize Impl where
   chmSchemize (name, alts) = (,) name <$> chmSchemize alts
 
 instance CHMSchemize Alt where
-  chmSchemize (pats, expr) = (,) pats <$> chmSchemize expr
+  chmSchemize (pats, expr) = do
+    pats' <- chmSchemize pats
+    expr' <- chmSchemize expr
+    return (pats', expr')
+
+instance CHMSchemize Pat where
+  chmSchemize (PAs id pat) = PAs id <$> chmSchemize pat
+  chmSchemize (PCon assump pats) = do
+    assump' <- chmSchemize assump
+    pats' <- chmSchemize pats
+    return $ PCon assump' pats'
+  -- case for PVar, PWildcard, PLit, PNpk
+  chmSchemize pat = return pat
 
 instance CHMSchemize Expr where
   chmSchemize (Let bindGroup expr) = do
@@ -129,6 +146,12 @@ instance CHMSchemize Expr where
     expr1' <- chmSchemize expr1
     expr2' <- chmSchemize expr2
     return $ Ap expr1' expr2'
+  chmSchemize (Lambda alt) =
+    Lambda <$> chmSchemize alt
+  chmSchemize (LambdaScheme scheme alt) = do
+    scheme' <- chmSchemize scheme
+    alt' <- chmSchemize alt
+    return (LambdaScheme scheme' alt')
   -- case for Var and Lit
   chmSchemize expr = return expr
 
@@ -155,7 +178,9 @@ translateDeclSpecs (decl:decls) = case decl of
   CTypeSpec (CBoolType _) -> return tBool
   CTypeSpec (CComplexType _) -> return tComplex
   CTypeSpec (CInt128Type _) -> return tInt128
-  CTypeSpec (CSUType (CStruct CStructTag (Just (Ident sId _ _)) Nothing _ _) _) -> return $ TCon (Tycon sId (Kfun Star Star))  -- TODO: same as TypeDef (just few rows below)
+  CTypeSpec (CSUType (CStruct CStructTag (Just (Ident sId _ _)) Nothing _ _) _) -> do
+    kind <- getStructKind sId
+    return $ TCon (Tycon sId kind)  -- TODO: same as TypeDef (just few rows below)
   CTypeSpec (CSUType (CStruct CStructTag (Just (Ident sId _ _)) (Just cDecls) _ _) _) -> registerStructMembers sId cDecls >> return (TCon (Tycon sId Star))
   CTypeSpec (CSUType (CStruct CStructTag Nothing _ _ _) _ ) -> return tError  -- TODO
   CTypeSpec (CSUType (CStruct CUnionTag (Just (Ident sId _ _)) _ _ _) _) -> return $ TCon (Tycon sId Star)  -- TODO: same as TypeDef
@@ -415,7 +440,7 @@ instance Transform CDecl where  -- TODO
         name <- sgName sId
         type' <- translateDerivedDecl pureType derivedDecls
         rest' <- transform (CDecl specs rest a)
-        return $ ([(name, toScheme type', [])], []) : rest'
+        return $ ([(name, toScheme type', [([], Const (name :>: toScheme type'))])], []) : rest'
       (Just (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _), Just (CInitExpr cExpr _), Nothing):rest -> do
         name <- sgName sId
         type' <- translateDerivedDecl pureType derivedDecls
@@ -430,19 +455,19 @@ instance Transform CStrLit where
     anonName <- appendNextAnon "@CString"
     return [([],[[(anonName, [([],Lit $ LitStr s)])]])]  -- TODO
 
-extractParNames :: [CDecl] -> TState [Id]
-extractParNames (parDecl:parDecls) =
-  case parDecl of
-    CDecl declSpecs [(Nothing, _, _)] _ -> do
-      anonName <- appendNextAnon "@TODO"
-      (anonName:) <$> extractParNames parDecls
-    CDecl declSpecs [(Just (CDeclr Nothing derived _ _ _), _, _)] _ -> do
-      anonName <- appendNextAnon "@TODO"
-      (anonName:) <$> extractParNames parDecls
-    CDecl declSpecs [(Just (CDeclr (Just (Ident parId _ _)) derived _ _ _), _, _)] _ -> do
-      pName <- sgName parId
-      (pName:) <$> extractParNames parDecls
-extractParNames [] = return []
+extractPar :: CDecl -> TState (Id, Type)
+extractPar (CDecl declSpecs [(Nothing, _, _)] _) = do
+  parName <- appendNextAnon "@TODO"
+  parType <- translateDeclSpecs declSpecs
+  return (parName, parType)
+extractPar (CDecl declSpecs [(Just (CDeclr Nothing derived _ _ _), _, _)] _) = do
+  parName <- appendNextAnon "@TODO"
+  parType <- translateDeclSpecs declSpecs >>= flip translateDerivedDecl derived
+  return (parName, parType)
+extractPar (CDecl declSpecs [(Just (CDeclr (Just (Ident parId _ _)) derived _ _ _), _, _)] _) = do
+  parName <- sgName parId
+  parType <- translateDeclSpecs declSpecs >>= flip translateDerivedDecl derived
+  return (parName, parType)
 
 transformFunDef :: CFunDef -> Id -> TState BindGroup
 transformFunDef (CFunDef specs (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _) decls stmt _) name = do -- TODO
@@ -454,13 +479,13 @@ transformFunDef (CFunDef specs (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _
       typeSignatures = case head derivedDecls of
         -- old-style
         CFunDeclr (Left idents) _ _ ->
-          return [parId | Ident parId _ _ <- idents]  -- TODO
+          error "not supporting old-style functions"  -- TODO
         -- not var-args
         CFunDeclr (Right (parDecls, False)) _ _ ->
-          extractParNames parDecls
+          traverse extractPar parDecls
         -- var-args
         CFunDeclr (Right (parDecls, True)) _ _ ->
-          extractParNames parDecls  -- TODO
+          traverse extractPar parDecls  -- TODO
         _ ->
           return []  -- TODO
       changeResult (TAp p r) to = TAp p to
@@ -469,15 +494,15 @@ transformFunDef (CFunDef specs (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _
     (parsType, retType) <- splitType fType
     paramsName <- sgName "@Params"
     returnName <- sgName "@Return"
-    parIds <- typeSignatures
+    pars <- typeSignatures
     stmt' <- transform stmt
     returns <- getFunctionReturns
     reassemble . reverseExpls $
       ( [ ( name
           , if retType == tError then toScheme tError else toScheme fType
           , [ ( [ PCon
-                    (paramsName :>: getTupleCon (length parIds))
-                    (PVar <$> parIds)
+                    (paramsName :>: toScheme (tupleize (snd <$> pars)))
+                    (PVar . fst <$> pars)
                 ]
               , Let
                   (flattenProgram stmt')
@@ -516,14 +541,15 @@ instance TransformCHMFunDef CHMFunDef where
     enterFunction sId
     enterCHMHead
     chmHead' <- transform chmHead
-    tVars' <- gets (head . typeVariables)
+    tVars' <- gets (reverse . head . typeVariables)
     let
       tVarNames = [name ++ ':' : tId | (Ident tId _ _) <- tVars]
       parExpls = zipWith (\x y -> (x, toScheme $ TVar y, [])) tVarNames tVars'
-    funDef' <- transformFunDef funDef name
+    funDef' <- transformFunDef funDef name >>= replaceAliasize
+    parExpls' <- replaceAliasize parExpls
     leaveCHMHead
     leaveFunction
-    return [funDef' , (parExpls, [])]
+    return [funDef', (parExpls', [])]
 
 instance Transform CStat where
   transform cStat = case cStat of
@@ -701,6 +727,7 @@ instance Transform CHMCDef where
 -}
 defineInstanceContents :: Id -> CHMParams -> [CExtDecl] -> TState BindGroup
 defineInstanceContents id (CHMParams chmTypes _) cExtDecls = do
+  parType <- traverse translateCHMType chmTypes >>= replaceAliases . createParamsType
   let
     instanceDefine (CFDefExt f) =
       instanceDefine . CHMFDefExt $ CHMFunDef
@@ -711,7 +738,6 @@ defineInstanceContents id (CHMParams chmTypes _) cExtDecls = do
       f' <- transform f
       let [([(name, scheme, def)],[])] = f'
       mScheme <- getMethodScheme id name
-      parType <- createParamsType <$> traverse translateCHMType chmTypes
       name' <- registerMethodInstance id name parType
       case mScheme of
        Just scheme' -> return ([(name', scheme, ([], Var name) : def)], [])
@@ -728,3 +754,79 @@ instance Transform CHMIDef where
     rtrn <- defineInstanceContents iId chmPars cExtDecls
     leaveCHMHead
     return [rtrn]
+
+class ReplaceAliasize a where
+  replaceAliasize :: a -> TState a
+
+instance ReplaceAliasize Type where
+  replaceAliasize a = replaceAliases a
+
+instance ReplaceAliasize Assump where
+  replaceAliasize (id :>: scheme) =
+    (id :>:) <$> replaceAliasize scheme
+
+instance ReplaceAliasize Scheme where
+  replaceAliasize (Forall kinds (cs :=> t)) = do
+    cs' <- replaceAliasize cs
+    t' <- replaceAliasize t
+    return (Forall kinds (cs' :=> t'))
+
+instance ReplaceAliasize Pred where
+  replaceAliasize (IsIn id t) =
+    IsIn id <$> replaceAliasize t
+
+instance ReplaceAliasize BindGroup where
+  replaceAliasize (expls, impls) = do
+    expls' <- replaceAliasize expls
+    impls' <- replaceAliasize impls
+    return (expls', impls')
+
+instance ReplaceAliasize Expl where
+  replaceAliasize (id, scheme, alts) = do
+    scheme' <- replaceAliasize scheme
+    alts' <- replaceAliasize alts
+    return (id, scheme', alts')
+
+instance ReplaceAliasize Impl where
+  replaceAliasize (id, alts) = do
+    alts' <- replaceAliasize alts
+    return (id, alts')
+
+instance ReplaceAliasize Alt where
+  replaceAliasize (pats, expr) = do
+    pats' <- replaceAliasize pats
+    expr' <- replaceAliasize expr
+    return (pats', expr')
+
+instance ReplaceAliasize Pat where
+  replaceAliasize (PAs id pat) =
+    PAs id <$> replaceAliasize pat
+  replaceAliasize (PCon assump pats) = do
+    assump' <- replaceAliasize assump
+    pats' <- replaceAliasize pats
+    return (PCon assump' pats')
+  -- PVar, PWildcard, PLit, PNpk
+  replaceAliasize pat = return pat
+
+instance ReplaceAliasize Expr where
+  replaceAliasize (Const assump) =
+    Const <$> replaceAliasize assump
+  replaceAliasize (Ap expr1 expr2) = do
+    expr1' <- replaceAliasize expr1
+    expr2' <- replaceAliasize expr2
+    return (Ap expr1' expr2')
+  replaceAliasize (Let bindGroup expr) = do
+    bindGroup' <- replaceAliasize bindGroup
+    expr' <- replaceAliasize expr
+    return (Let bindGroup' expr')
+  replaceAliasize (Lambda alt) =
+    Lambda <$> replaceAliasize alt
+  replaceAliasize (LambdaScheme scheme alt) = do
+    scheme' <- replaceAliasize scheme
+    alt' <- replaceAliasize alt
+    return (LambdaScheme scheme' alt')
+  -- Var, Lit
+  replaceAliasize expr = return expr
+
+instance ReplaceAliasize a => ReplaceAliasize [a] where
+  replaceAliasize as = traverse replaceAliasize as
