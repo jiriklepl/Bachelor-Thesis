@@ -28,8 +28,15 @@ instance Magic CExtDecl where
     let (name :>: scheme : _) = a'
     createPolyType name scheme a
     return []
-  magic a@(CHMSDefExt _) = do
+  magic a@(CHMSDefExt (CHMStructDef (CHMHead chmIdents _ _) cStructUnion _)) = do
     _ <- parse a
+    let
+      name = getCName a
+      sKind = takeNKind $ length chmIdents
+      sType = TCon $ Tycon name sKind
+    case getSUType a of
+      CStructTag -> createPolyStruct name (toScheme sType) a
+      CUnionTag -> createPolyUnion name (toScheme sType) a
     return []
   magic a@(CDeclExt _) = do
     _ <- parse a
@@ -44,7 +51,7 @@ instance Magic CExtDecl where
       assumpMap = Map.fromList $ (\(fName :>: fScheme) -> (fName, fScheme)) <$> a'
     sequence_
       [ let
-          fName = getFunName cExtDecl
+          fName = getCName cExtDecl
           fScheme = assumpMap Map.! fName
         in createClassPolyType cName fName fScheme cExtDecl
       | cExtDecl <- cExtDecls
@@ -57,7 +64,7 @@ instance Magic CExtDecl where
     parType <- runTState $ createParamsType <$> traverse translateCHMType chmTypes
     sequence_
       [ let
-          fName = getFunName cExtDecl
+          fName = getCName cExtDecl
         in addPTypeInstance fName parType cExtDecl
       | cExtDecl <- cExtDecls
       ]

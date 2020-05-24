@@ -47,6 +47,9 @@ data InstantiateMonad = InstantiateMonad
   , transformState :: TransformMonad
   , lastScopeCopy  :: Int
   , polyTypes      :: Map.Map Id PolyType
+  , polyStructs    :: Map.Map Id PolyType
+  , polyUnions     :: Map.Map Id PolyType
+  , polyEnums      :: Map.Map Id PolyType
   , polyAnonNumber :: Int
   }
 
@@ -56,6 +59,9 @@ initInstantiateMonad = InstantiateMonad
   , transformState = initTransformMonad
   , lastScopeCopy  = 0
   , polyTypes      = Map.empty
+  , polyStructs    = Map.empty
+  , polyUnions     = Map.empty
+  , polyEnums      = Map.empty
   , polyAnonNumber = 0
   }
 
@@ -63,6 +69,21 @@ createPolyType :: Id -> Scheme -> CExtDecl -> IState ()
 createPolyType fName fScheme fDef = do
     state@InstantiateMonad{polyTypes = pTs} <- get
     put state {polyTypes = Map.insert fName (initPolyType fScheme fDef) pTs}
+
+createPolyStruct :: Id -> Scheme -> CExtDecl -> IState ()
+createPolyStruct fName fScheme fDef = do
+    state@InstantiateMonad{polyStructs = pSs} <- get
+    put state {polyStructs = Map.insert fName (initPolyType fScheme fDef) pSs}
+
+createPolyUnion :: Id -> Scheme -> CExtDecl -> IState ()
+createPolyUnion fName fScheme fDef = do
+    state@InstantiateMonad{polyUnions = pUs} <- get
+    put state {polyUnions = Map.insert fName (initPolyType fScheme fDef) pUs}
+
+createPolyEnum :: Id -> Scheme -> CExtDecl -> IState ()
+createPolyEnum fName fScheme fDef = do
+    state@InstantiateMonad{polyEnums = pEs} <- get
+    put state {polyEnums = Map.insert fName (initPolyType fScheme fDef) pEs}
 
 createClassPolyType :: Id -> Id -> Scheme -> CExtDecl -> IState ()
 createClassPolyType cName fName fScheme fDef = do
@@ -449,7 +470,7 @@ instantiate extFunDef scheme = do
     | (name' :>: scheme') <- as
     ]
   let
-    funName = getFunName extFunDef'
+    funName = getCName extFunDef'
     tVarMap = foldl Map.union Map.empty
       [ if and (zipWith (==) name' funName)
           then drop (length funName + 1) name' `Map.singleton` scheme'
@@ -758,7 +779,7 @@ rewrite
   scheme = return . CFDefExt $ renameFunDef ("__" ++ name ++ mangle scheme) funDef  -- TODO
 
 rewrite cExtDecl scheme@(Forall [] (cs :=> t)) = do
-  let name = getFunName cExtDecl
+  let name = getCName cExtDecl
   pType <- gets ((Map.! name) . polyTypes)
   let
     Just cId = pTypeClass pType

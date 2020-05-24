@@ -4,13 +4,16 @@ module CHM.Transform
   , TransformCHMFunDef (..)
   , TState
   , TransformMonad (..)
-  , GetFunName(..)
+  , GetCName(..)
+  , GetSU(..)
   , tPointer
   , runInfer
   , initTransformMonad
   , createParamsType
   , translateCHMType
   , getTransformResult
+  , chmScheme
+  , takeNKind
   , typeInfer
   , flattenProgram
   , storeName
@@ -536,21 +539,33 @@ instance TransformCHMFunDef CExtDecl where
   transformCHMFunDef (CHMFDefExt chmFunDef) =
     transformCHMFunDef chmFunDef
 
+class GetAliases a where
+  getAliases :: a -> TState [Assump]
+
+instance GetAliases CHMConstr where
+  getAliases (CHMUnifyConstr (Ident name _ _) chmType _) = do
+    chmType' <- translateCHMType chmType
+    return [name :>: toScheme chmType']
+  getAliases _ = return []
+
+instance GetAliases a => GetAliases [a] where
+  getAliases as = concat <$> traverse getAliases as
+
 instance TransformCHMFunDef CHMFunDef where
-  transformCHMFunDef (CHMFunDef chmHead@(CHMHead tVars _ _) funDef@(CFunDef _ (CDeclr (Just (Ident sId _ _)) _ _ _ _) _ _ _) _) = do
+  transformCHMFunDef (CHMFunDef chmHead@(CHMHead tVars chmConstrs _) funDef@(CFunDef _ (CDeclr (Just (Ident sId _ _)) _ _ _ _) _ _ _) _) = do
     name <- sgName sId
     enterFunction sId
     enterCHMHead
     chmHead' <- transform chmHead
-    tVars' <- gets (reverse . head . typeVariables)
+    tVars' <- gets ((toScheme . TVar <$>) . reverse . head . typeVariables)
     let
       tVarNames = [name ++ ':' : tId | (Ident tId _ _) <- tVars]
-      parExpls = zipWith (\x y -> (x, toScheme $ TVar y, [])) tVarNames tVars'
     funDef' <- transformFunDef funDef name >>= replaceAliasize
-    parExpls' <- replaceAliasize parExpls
+    parExpls <- replaceAliasize $ zip3 tVarNames tVars' (repeat [])
+    aliases <- ((\(i :>: sc) -> (name ++ ':' : i, sc, [])) <$>) <$> getAliases chmConstrs
     leaveCHMHead
     leaveFunction
-    return [funDef', (parExpls', [])]
+    return [funDef', (parExpls ++ aliases, [])]
 
 instance Transform CStat where
   transform cStat = case cStat of

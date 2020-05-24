@@ -3,7 +3,8 @@ module CHM.TransformMonad
   ( MethodNamed
   , Method(..)
   , TransformMonad(..)
-  , GetFunName(..)
+  , GetCName(..)
+  , GetSU(..)
   , TState
   , initTransformMonad
   , getClassMethods
@@ -648,7 +649,6 @@ replaceAliases (TAp t1 t2) = do
 -- for TGen(?) and mainly TCon
 replaceAliases t = return t
 
-
 -- | Replaces type annotations with generic types and constraints (see 'quantify')
 chmScheme :: Type -> TState Scheme
 chmScheme t = do
@@ -992,19 +992,40 @@ registerMethodInstance cId mId mType = do
 runTState :: TState a -> (a,TransformMonad)
 runTState a = runState a initTransformMonad
 
-class GetFunName a where
-  getFunName :: a -> Id
+class GetCName a where
+  getCName :: a -> Id
 
-instance GetFunName CFunDef where
-  getFunName (CFunDef _ (CDeclr (Just (Ident name _ _)) _ _ _ _) _ _ _) = name
+instance GetCName CFunDef where
+  getCName (CFunDef _ (CDeclr (Just (Ident name _ _)) _ _ _ _) _ _ _) = name
 
-instance GetFunName CHMFunDef where
-  getFunName (CHMFunDef _ cFunDef _) = getFunName cFunDef
+instance GetCName CHMFunDef where
+  getCName (CHMFunDef _ cFunDef _) = getCName cFunDef
 
-instance GetFunName CExtDecl where
-  getFunName (CHMFDefExt chmFunDef) = getFunName chmFunDef
-  getFunName (CFDefExt cFunDef)     = getFunName cFunDef
-  getFunName (CDeclExt cFunDecl)    = getFunName cFunDecl
+instance GetCName CHMStructDef where
+  getCName (CHMStructDef _ cStructUnion _) = getCName cStructUnion
 
-instance GetFunName CDecl where
-  getFunName (CDecl _ [(Just (CDeclr (Just (Ident name _ _)) (CFunDeclr{} : _) _ _ _), Nothing, Nothing)] _) = name
+instance GetCName CStructUnion where
+  getCName (CStruct _ (Just (Ident name _ _)) _ _ _) = name
+
+instance GetCName CExtDecl where
+  getCName (CHMFDefExt chmFunDef) = getCName chmFunDef
+  getCName (CHMSDefExt chmStructDef) = getCName chmStructDef
+  getCName (CFDefExt cFunDef)     = getCName cFunDef
+  getCName (CDeclExt cFunDecl)    = getCName cFunDecl
+
+instance GetCName CDecl where
+  getCName (CDecl _ [(Just (CDeclr (Just (Ident name _ _)) (CFunDeclr{} : _) _ _ _), Nothing, Nothing)] _) = name
+
+class GetCName a => GetSU a where
+  getSUName :: a -> Id
+  getSUType :: a -> CStructTag
+  getSUName = getCName
+
+instance GetSU CExtDecl where
+  getSUType (CHMSDefExt chmStructDef) = getSUType chmStructDef
+
+instance GetSU CHMStructDef where
+  getSUType (CHMStructDef _ cStructUnion _) = getSUType cStructUnion
+
+instance GetSU CStructUnion where
+  getSUType (CStruct tag _ _ _ _) = tag
