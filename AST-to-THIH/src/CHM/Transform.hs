@@ -174,7 +174,10 @@ translateDeclSpecs (decl:decls) = case decl of
   CTypeSpec (CCharType _) -> return tChar
   CTypeSpec (CShortType _) -> return tShort
   CTypeSpec (CIntType _) -> return tInt
-  CTypeSpec (CLongType _) -> return tLong  -- TODO "long long int" will just return "long"
+  CTypeSpec (CLongType _) ->
+    if null decls
+      then return tLong
+      else (tLongSpec `TAp`) <$> translateDeclSpecs decls
   CTypeSpec (CFloatType _) -> return tFloat
   CTypeSpec (CDoubleType _) -> return tDouble
   CTypeSpec (CSignedType _) -> return tSigned
@@ -185,13 +188,16 @@ translateDeclSpecs (decl:decls) = case decl of
   CTypeSpec (CSUType (CStruct CStructTag (Just (Ident sId _ _)) Nothing _ _) _) -> do
     kind <- getStructKind sId
     return $ TCon (Tycon sId kind)  -- TODO: same as TypeDef (just few rows below)
-  CTypeSpec (CSUType (CStruct CStructTag (Just (Ident sId _ _)) (Just cDecls) _ _) _) -> registerStructMembers sId cDecls >> return (TCon (Tycon sId Star))
+  CTypeSpec (CSUType (CStruct CStructTag (Just (Ident sId _ _)) (Just cDecls) _ _) _) ->
+    registerStructMembers sId cDecls >> return (TCon (Tycon sId Star))
   CTypeSpec (CSUType (CStruct CStructTag Nothing _ _ _) _ ) -> return tError  -- TODO
-  CTypeSpec (CSUType (CStruct CUnionTag (Just (Ident sId _ _)) _ _ _) _) -> return $ TCon (Tycon sId Star)  -- TODO: same as TypeDef
+  CTypeSpec (CSUType (CStruct CUnionTag (Just (Ident sId _ _)) _ _ _) _) -> do
+    kind <- getStructKind sId
+    return $ TCon (Tycon sId kind)  -- TODO: same as TypeDef (just few rows below)
   CTypeSpec (CSUType (CStruct CUnionTag Nothing _ _ _) _) -> return tError  -- TODO
   CTypeSpec (CTypeDef (Ident sId _ _) _) -> do
     name <- scopedName sId
-    return $ TVar (Tyvar name Star)  -- TODO: why just Star, we should store it in the monad (and the name as well)
+    return $ TVar (Tyvar name Star)
   -- TODO: from here
   CTypeQual (CConstQual _) -> toConst <$> translateDeclSpecs decls  -- works only with west const :(
   CTypeQual (CVolatQual _) -> translateDeclSpecs decls  -- TODO

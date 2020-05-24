@@ -81,6 +81,7 @@ tDouble  = TCon (Tycon tDoubleId Star)
 tVoid  = TCon (Tycon "Void" Star)
 tShort = TCon (Tycon "Short" Star)
 tLong = TCon (Tycon "Long" Star)
+tLongSpec = TCon (Tycon "LongSpec" (Kfun Star Star))
 tSigned = TCon (Tycon "Signed" Star)
 tUnsig = TCon (Tycon "Unsig" Star)
 tBool = TCon (Tycon "Bool" Star)
@@ -170,7 +171,7 @@ mgu (TVar u) t        = varBind u t
 mgu t (TVar u)        = varBind u t
 mgu (TCon tc1) (TCon tc2)
            | tc1==tc2 = return nullSubst
-mgu t1 t2             = fail "types do not unify"
+mgu t1 t2             = fail $ "types `" ++ show t1 ++ "` and `" ++ show t2 ++ "` do not unify"
 
 varBind u t | t == TVar u      = return nullSubst
             | u `elem` tv t    = fail "occurs check fails"

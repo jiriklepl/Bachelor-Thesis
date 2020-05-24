@@ -513,7 +513,7 @@ instance ReplaceTVars CDeclSpec where
   replaceTVars _ a = a
 
 schemeToMono :: Scheme -> Id
-schemeToMono = ('_' :) . mangle  -- TODO
+schemeToMono = tail . mangle  -- TODO
 
 instance ReplaceTVars CTypeSpec where
   replaceTVars as cTypeDef@(CTypeDef (Ident sId a b) c) =
