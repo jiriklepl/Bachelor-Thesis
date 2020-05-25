@@ -42,9 +42,9 @@ instance Magic CExtDecl where
     _ <- parse a
     return [a]
   magic a@(CFDefExt _) = do
-    rtrn <- instantiate a (Forall [] ([] :=> TCon (Tycon "pointlessType" Star)))
-    _ <- parse a
-    return rtrn
+    instantiate a (Forall [] ([] :=> TCon (Tycon "pointlessType" Star)))
+    parse a
+    gets (reverse . cProgram)
   magic a@(CHMCDefExt (CHMCDef (Ident cName _ _) chmHead cExtDecls _)) = do
     a' <- parse a
     let
