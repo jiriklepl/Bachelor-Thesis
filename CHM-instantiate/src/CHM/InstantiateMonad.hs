@@ -29,7 +29,6 @@ data PolyType = PolyType
   }
   deriving (Show)
 
-
 initPolyType :: Scheme -> CExtDecl -> PolyType
 initPolyType scheme def = PolyType
   { pTypeDefinition = def
@@ -44,32 +43,30 @@ initClassPolyType cName fScheme fDef =
   (initPolyType fScheme fDef){pTypeClass = Just cName}
 
 data InstantiateMonad = InstantiateMonad
-  { parsedAssumps   :: [Assump]
-  , transformState  :: TransformMonad
-  , lastScopeCopy   :: Int
-  , polyTypes       :: Map.Map Id PolyType
-  , polyStructs     :: Map.Map Id PolyType
-  , polyUnions      :: Map.Map Id PolyType
-  , polyEnums       :: Map.Map Id PolyType
-  , schemeInstances :: Set.Set Id
-  , polyAnonNumber  :: Int
-  , polyMaps        :: [Map.Map Id Id]
-  , cProgram        :: [CExtDecl]
+  { parsedAssumps    :: [Assump]
+  , transformState   :: TransformMonad
+  , lastScopeCopy    :: Int
+  , polyTypes        :: Map.Map Id PolyType
+  , polyStructUnions :: Map.Map Id PolyType
+  , polyEnums        :: Map.Map Id PolyType
+  , schemeInstances  :: Set.Set Id
+  , polyAnonNumber   :: Int
+  , polyMaps         :: [Map.Map Id Id]
+  , cProgram         :: [CExtDecl]
   }
 
 initInstantiateMonad :: InstantiateMonad
 initInstantiateMonad = InstantiateMonad
-  { parsedAssumps   = []
-  , transformState  = initTransformMonad
-  , lastScopeCopy   = 0
-  , polyTypes       = Map.empty
-  , polyStructs     = Map.empty
-  , polyUnions      = Map.empty
-  , polyEnums       = Map.empty
-  , schemeInstances = Set.empty
-  , polyAnonNumber  = 0
-  , polyMaps        = []
-  , cProgram        = []
+  { parsedAssumps    = []
+  , transformState   = initTransformMonad
+  , lastScopeCopy    = 0
+  , polyTypes        = Map.empty
+  , polyStructUnions = Map.empty
+  , polyEnums        = Map.empty
+  , schemeInstances  = Set.empty
+  , polyAnonNumber   = 0
+  , polyMaps         = []
+  , cProgram         = []
   }
 
 pushPolyMaps, pullPolyMaps :: IState ()
@@ -83,13 +80,8 @@ createPolyType fName fScheme fDef = do
 
 createPolyStruct :: Id -> Scheme -> CExtDecl -> IState ()
 createPolyStruct fName fScheme fDef = do
-    state@InstantiateMonad{polyStructs = pSs} <- get
-    put state {polyStructs = Map.insert fName (initPolyType fScheme fDef) pSs}
-
-createPolyUnion :: Id -> Scheme -> CExtDecl -> IState ()
-createPolyUnion fName fScheme fDef = do
-    state@InstantiateMonad{polyUnions = pUs} <- get
-    put state {polyUnions = Map.insert fName (initPolyType fScheme fDef) pUs}
+    state@InstantiateMonad{polyStructUnions = pSs} <- get
+    put state {polyStructUnions = Map.insert fName (initPolyType fScheme fDef) pSs}
 
 createPolyEnum :: Id -> Scheme -> CExtDecl -> IState ()
 createPolyEnum fName fScheme fDef = do
@@ -125,13 +117,14 @@ replaceType n t h
   | otherwise = h
 
 replaceGen :: Id -> [Kind] -> Type -> Type
-replaceGen name kinds t = flip foldl t
+replaceGen name kinds t = foldl
   (\a (kind, num) ->
     replaceType
       (TGen num)
       (TVar . flip Tyvar kind $ "@TV" ++ name ++ "_par:" ++ show num)
       a
   )
+  t
   (zip kinds [0..])
 
 variablizePolyType :: Id -> IState Scheme
@@ -159,16 +152,22 @@ addPolyTypeInstance pId iId = do
 class ReplacePolyTypes a where
   replacePolyTypes :: a -> IState a
 
-instance ReplacePolyTypes CExtDecl where  -- TODO: I think this needs some polish
-  replacePolyTypes (CHMFDefExt (CHMFunDef chmHead (CFunDef cDeclSpecs cDeclr cDecls cStmt a) b)) = do
-    cStmt' <- replacePolyTypes cStmt
-    return $ CHMFDefExt (CHMFunDef chmHead (CFunDef cDeclSpecs cDeclr cDecls cStmt' a) b)
-  replacePolyTypes (CFDefExt (CFunDef cDeclSpecs cDeclr cDecls cStmt a)) = do
-    cStmt' <- replacePolyTypes cStmt
-    return $ CFDefExt (CFunDef cDeclSpecs cDeclr cDecls cStmt' a)
-  replacePolyTypes cDeclExt@CDeclExt{} = return cDeclExt
+instance ReplacePolyTypes CExtDecl where
+  replacePolyTypes (CHMFDefExt chmFunDef) =
+    CHMFDefExt <$> replacePolyTypes chmFunDef
+  replacePolyTypes (CFDefExt cFunDef) =
+    CFDefExt <$> replacePolyTypes cFunDef
   replacePolyTypes (CHMSDefExt chmStructDef) =
     CHMSDefExt <$> replacePolyTypes chmStructDef
+  replacePolyTypes cDeclExt@CDeclExt{} = return cDeclExt
+
+instance ReplacePolyTypes CHMFunDef where
+  replacePolyTypes (CHMFunDef chmHead cFunDef a) =
+    flip (CHMFunDef chmHead) a <$> replacePolyTypes cFunDef
+
+instance ReplacePolyTypes CFunDef where
+  replacePolyTypes (CFunDef cDeclSpecs cDeclr cDecls cStmt a) =
+    flip (CFunDef cDeclSpecs cDeclr cDecls) a <$> replacePolyTypes cStmt
 
 instance ReplacePolyTypes CHMStructDef where
   replacePolyTypes (CHMStructDef chmHead cStructUnion a) =
@@ -186,7 +185,11 @@ instance ReplacePolyTypes CStat where
     cExpr' <- replacePolyTypes cExpr
     cStat' <- replacePolyTypes cStat
     return $ CCase cExpr' cStat' a
-  replacePolyTypes CCases{} = return $ error "case ranges not yet supported"  -- TODO: do cases
+  replacePolyTypes (CCases lExpr uExpr cStat a) = do
+    lExpr' <- replacePolyTypes lExpr
+    uExpr' <- replacePolyTypes uExpr
+    cStat' <- replacePolyTypes cStat
+    return $ CCases lExpr' uExpr' cStat' a
   replacePolyTypes (CDefault cStat a) =
     flip CDefault a <$> replacePolyTypes cStat
   replacePolyTypes (CExpr (Just cExpr) a) =
@@ -211,20 +214,27 @@ instance ReplacePolyTypes CStat where
     cExpr' <- replacePolyTypes cExpr
     cStat' <- replacePolyTypes cStat
     return $ CWhile cExpr' cStat' doWhile a
-  replacePolyTypes CFor{} = return $ error "for is not yet supported"  -- TODO: do for
+  replacePolyTypes (CFor eExprDecl mExpr2 mExpr3 cStat a) = do
+    eExprDecl' <- replacePolyTypes eExprDecl
+    mExpr2' <- replacePolyTypes mExpr2
+    mExpr3' <- replacePolyTypes mExpr3
+    cStat' <- replacePolyTypes cStat
+    return $ CFor eExprDecl' mExpr2' mExpr3' cStat' a
   replacePolyTypes cGoto@(CGoto _ _) = return cGoto
-  replacePolyTypes cGotoPtr@(CGotoPtr _ _) = return cGotoPtr  -- TODO: well this is not right, right?
+  replacePolyTypes cGotoPtr@(CGotoPtr _ _) = return cGotoPtr
   replacePolyTypes cCont@(CCont _) = return cCont
   replacePolyTypes cBreak@(CBreak _) = return cBreak
   replacePolyTypes (CReturn (Just cExpr) a) =
     flip CReturn a . Just <$> replacePolyTypes cExpr
-  replacePolyTypes cAsm@(CAsm _ _) = return cAsm  -- TODO: todo or not todo
+  replacePolyTypes cAsm@(CAsm _ _) = return cAsm
 
-instance ReplacePolyTypes CBlockItem where  -- TODO:
+instance ReplacePolyTypes CBlockItem where
   replacePolyTypes (CBlockStmt cStat) =
     CBlockStmt <$> replacePolyTypes cStat
   replacePolyTypes (CBlockDecl cDeclr) =
     CBlockDecl <$> replacePolyTypes cDeclr
+  replacePolyTypes (CNestedFunDef cFunDef) =
+    CNestedFunDef <$> replacePolyTypes cFunDef
 
 instance ReplacePolyTypes CDecl where
   replacePolyTypes (CDecl cDeclSpecs cDeclDecls a) = do
@@ -252,7 +262,7 @@ instance ReplacePolyTypes CInitListItem where
     return (cDesigs', cInit')
 
 instance ReplacePolyTypes CDesignator where
-  replacePolyTypes (CArrDesig cExpr a) = do
+  replacePolyTypes (CArrDesig cExpr a) =
     flip CArrDesig a <$> replacePolyTypes cExpr
   replacePolyTypes cMemberDesig@CMemberDesig{} =
     return cMemberDesig
@@ -301,7 +311,10 @@ instance ReplacePolyTypes CDeclr where
     cDerivedDeclrs' <- replacePolyTypes cDerivedDeclrs
     cAttrs' <- replacePolyTypes cAttrs
     return $ CDeclr mIdent cDerivedDeclrs' mStrLit cAttrs' a
-  replacePolyTypes (CHMDeclr cDeclr chmPars a ) = error "not yet done"  -- TODO
+  replacePolyTypes (CHMDeclr cDeclr chmPars a) = do
+    cDeclr' <- replacePolyTypes cDeclr
+    chmPars' <- replacePolyTypes chmPars
+    return $ CHMDeclr cDeclr' chmPars' a
 
 instance ReplacePolyTypes CAttr where
   replacePolyTypes (CAttr ident cExprs a) =
@@ -309,12 +322,25 @@ instance ReplacePolyTypes CAttr where
 
 instance ReplacePolyTypes CDerivedDeclr where
   replacePolyTypes (CFunDeclr (Left idents) cAttrs a) =
-    error "not supporting old-style functions"  -- TODO: support old-style functions
+    flip (CFunDeclr (Left idents)) a <$> replacePolyTypes cAttrs
   replacePolyTypes (CFunDeclr (Right (cDeclrs, varArgs)) cAttrs a) = do
     cDeclrs' <- replacePolyTypes cDeclrs
     cAttrs' <- replacePolyTypes cAttrs
     return $ CFunDeclr (Right (cDeclrs', varArgs)) cAttrs' a
+  -- CPtrDeclr, CArrDeclr
   replacePolyTypes a = return a
+
+instance ReplacePolyTypes CHMParams where
+  replacePolyTypes (CHMParams chmTypes a) =
+    flip CHMParams a <$> replacePolyTypes chmTypes
+
+instance ReplacePolyTypes CHMT where
+  replacePolyTypes (CHMCType cDeclSpecs a) =
+    flip CHMCType a <$> replacePolyTypes cDeclSpecs
+  replacePolyTypes (CHMParType chmType chmPars a) = do
+    chmType' <- replacePolyTypes chmType
+    chmPars' <- replacePolyTypes chmPars
+    return $ CHMParType chmType' chmPars' a
 
 instance ReplacePolyTypes CExpr where
   replacePolyTypes (CComma cExprs a) =
@@ -332,15 +358,20 @@ instance ReplacePolyTypes CExpr where
     cLeft' <- replacePolyTypes cLeft
     cRight' <- replacePolyTypes cRight
     return $ CBinary binOp cLeft' cRight' a
-  -- TODO: CCast
+  replacePolyTypes (CCast cDecl cExpr a) = do
+    cDecl' <- replacePolyTypes cDecl
+    cExpr' <- replacePolyTypes cExpr
+    return $ CCast cDecl' cExpr' a
   replacePolyTypes (CUnary unOp cExpr a) =
     flip (CUnary unOp) a <$> replacePolyTypes cExpr
   replacePolyTypes (CSizeofExpr cExpr a) =
     flip CSizeofExpr a <$> replacePolyTypes cExpr
-  -- TODO: CSizeofType
+  replacePolyTypes (CSizeofType cExpr a) =
+    flip CSizeofType a <$> replacePolyTypes cExpr
   replacePolyTypes (CAlignofExpr cExpr a) =
     flip CAlignofExpr a <$> replacePolyTypes cExpr
-  -- TODO: CAlignofType
+  replacePolyTypes (CAlignofType cExpr a) =
+    flip CAlignofType a <$> replacePolyTypes cExpr
   replacePolyTypes (CComplexReal cExpr a) =
     flip CComplexReal a <$> replacePolyTypes cExpr
   replacePolyTypes (CComplexImag cExpr a) =
@@ -368,7 +399,10 @@ instance ReplacePolyTypes CExpr where
       else return cVar
   replacePolyTypes cConst@(CConst _) =
     return cConst
-  -- TODO: CCompoundLit
+  replacePolyTypes (CCompoundLit cDecl cInitList a) = do
+    cDecl' <- replacePolyTypes cDecl
+    cInitList' <- replacePolyTypes cInitList
+    return $ CCompoundLit cDecl' cInitList' a
   -- TODO: CGenericSelection
   replacePolyTypes (CStatExpr cStat a) =
     flip CStatExpr a <$> replacePolyTypes cStat
@@ -403,6 +437,11 @@ instance ReplacePolyTypes a => ReplacePolyTypes [a] where
 instance ReplacePolyTypes a => ReplacePolyTypes (Maybe a) where
   replacePolyTypes Nothing = return Nothing
   replacePolyTypes (Just a) = Just <$> replacePolyTypes a
+
+instance
+  (ReplacePolyTypes a, ReplacePolyTypes b) =>
+    ReplacePolyTypes (Either a b) where
+  replacePolyTypes e = traverse replacePolyTypes e
 
 instantiate :: CExtDecl -> Scheme -> IState ()
 instantiate extFunDef scheme = do
@@ -446,7 +485,7 @@ instantiate extFunDef scheme = do
           else name' `Map.singleton` scheme'
       | (name' :>: scheme') <- as
       ]
-    -- TODO
+    -- TODO: i cannot remember what
   extFunDef'' <- replaceTVars tVarMap extFunDef' >>= flip rewrite scheme
   pullPolyMaps
   modify (\state -> state{cProgram = extFunDef'' : cProgram state})
@@ -490,14 +529,14 @@ instance ReplaceTVars CDeclSpec where
   replaceTVars as (CTypeSpec cTypeSpec) =
     CTypeSpec <$> replaceTVars as cTypeSpec
   replaceTVars as (CAlignSpec cAlignSpec) =
-    CAlignSpec <$> replaceTVars as cAlignSpec  -- TODO
+    CAlignSpec <$> replaceTVars as cAlignSpec
   replaceTVars _ a = return a
 
 typeToMono :: Type -> NodeInfo -> IState Id
 typeToMono t@(TCon (Tycon tId _)) _ =
   case tId `Map.lookup` builtinTypes of
     Just name -> return name
-    _ -> return tId  -- TODO: test for polySUE
+    _ -> return tId
 typeToMono t nInfo = do
   sIs <- gets schemeInstances
   let t' = mangleType t
@@ -545,8 +584,7 @@ instantiateTypeInner name (TAp (TAp (TCon (Tycon "(->)" _)) t1) t2) nInfo = do
       ]
       nInfo
   modify (\state -> state {cProgram = cDecl : cProgram state})
-instantiateTypeInner name t@(TAp t1 t2) nInfo = do
-
+instantiateTypeInner name t@(TAp t1 t2) nInfo =
   if t1 == tPointer then do
     t2' <- typeToMono t2 nInfo
     let
@@ -564,13 +602,12 @@ instantiateTypeInner name t@(TAp t1 t2) nInfo = do
       getLeftest (TAp tA tB) = getLeftest tA
       getLeftest tA = tA
       (TCon (Tycon t' _)) = getLeftest t
-    case t' `Map.lookup` polyStructs state of
+    case t' `Map.lookup` polyStructUnions state of
       Just pType ->
         instantiate (pTypeDefinition pType) (toScheme t)
 
 schemeToMono :: Scheme -> NodeInfo -> IState Id
-schemeToMono (Forall [] (cs :=> t)) nInfo =
-  typeToMono t nInfo  -- TODO
+schemeToMono (Forall [] (cs :=> t)) = typeToMono t
 
 
 instance ReplaceTVars CTypeSpec where
@@ -606,7 +643,7 @@ instance ReplaceTVars CDeclr where
 
 instance ReplaceTVars CDerivedDeclr where
   replaceTVars as (CFunDeclr (Left idents) cAttrs a) =
-    error "not supporting old-style functions"  -- TODO: support old-style functions
+    flip (CFunDeclr (Left idents)) a <$> replaceTVars as cAttrs
   replaceTVars as (CFunDeclr (Right (cDeclrs, varArgs)) cAttrs a) = do
     cDeclrs' <- replaceTVars as cDeclrs
     cAttrs' <- replaceTVars as cAttrs
@@ -689,7 +726,12 @@ instance ReplaceTVars CStat where
     cStmt' <- replaceTVars as cStmt
     mStmt' <- replaceTVars as mStmt
     return $ CIf cExpr' cStmt' mStmt' a
-  replaceTVars as CFor{} = error "do later"  -- TODO
+  replaceTVars as (CFor eExprDecl mExpr2 mExpr3 cStat a) = do
+    eExprDecl' <- replaceTVars as eExprDecl
+    mExpr2' <- replaceTVars as mExpr2
+    mExpr3' <- replaceTVars as mExpr3
+    cStat' <- replaceTVars as cStat
+    return $ CFor eExprDecl' mExpr2' mExpr3' cStat' a
   replaceTVars as cGoto@CGoto{} = return cGoto
   replaceTVars as (CGotoPtr cExpr a) =
     flip CGotoPtr a <$> replaceTVars as cExpr
@@ -697,7 +739,7 @@ instance ReplaceTVars CStat where
   replaceTVars as cBreak@CBreak{} = return cBreak
   replaceTVars as (CReturn mExpr a) =
     flip CReturn a <$> replaceTVars as mExpr
-  replaceTVars as cAsm@CAsm{} = return cAsm  -- TODO
+  replaceTVars as cAsm@CAsm{} = return cAsm
 
 instance ReplaceTVars CBlockItem where
   replaceTVars as (CBlockStmt cStmt) =
@@ -768,18 +810,21 @@ instance ReplaceTVars CExpr where
     cInitList' <- replaceTVars as cInitList
     return $ CCompoundLit cDeclr' cInitList' a
   replaceTVars as CGenericSelection{} =
-    error "not supporting c generic selections"  -- TODO: maybe yes
+    error "not supporting c generic selections"
   replaceTVars as (CStatExpr cStmt a) =
     flip CStatExpr a <$> replaceTVars as cStmt
   replaceTVars as cLabAddrExpr@CLabAddrExpr{} = return cLabAddrExpr
   replaceTVars as CBuiltinExpr{} =
-    error "not supporting builtinThing"  -- TODO: maybe do support
+    error "not supporting builtinThing"
 
 instance ReplaceTVars b => ReplaceTVars [b] where
   replaceTVars as bs = traverse (replaceTVars as) bs
 
 instance ReplaceTVars b => ReplaceTVars (Maybe b) where
   replaceTVars as m = traverse (replaceTVars as) m
+
+instance (ReplaceTVars a, ReplaceTVars b) => ReplaceTVars (Either a b) where
+  replaceTVars as e = traverse (replaceTVars as) e
 
 class RenameCDef a where
   renameCDef :: Id -> a -> a
@@ -810,7 +855,7 @@ instance GetFunDef CExtDecl where
 instance GetFunDef CHMFunDef where
   getFunDef (CHMFunDef _ cFunDef _) = cFunDef
 
-rewrite :: CExtDecl -> Scheme -> IState CExtDecl  -- TODO
+rewrite :: CExtDecl -> Scheme -> IState CExtDecl
 rewrite cExtDecl@CFDefExt{} _ = return cExtDecl
 rewrite cExtDecl@(CHMSDefExt (CHMStructDef _ cStructUnion _)) scheme =
   let
@@ -830,29 +875,17 @@ rewrite cExtDecl@(CHMSDefExt (CHMStructDef _ cStructUnion _)) scheme =
         , Nothing
         , Nothing
       ) ]
-      nInfo  -- TODO: from here
-rewrite
-  cExtDecl@( CHMFDefExt
-      ( CHMFunDef
-          chmHead
-          funDef@( CFunDef
-              _
-              (CDeclr (Just (Ident name _ _)) _ _ _ _)
-              _
-              _
-              _
-          )
-          _
-      )
-  )
-  scheme = return . CFDefExt $ renameCDef ("__" ++ name ++ mangle scheme) funDef  -- TODO
+      nInfo
+rewrite cExtDecl@(CHMFDefExt (CHMFunDef chmHead cFunDef _)) scheme =
+  let name = getCName cFunDef
+  in return . CFDefExt $ renameCDef ("__" ++ name ++ mangle scheme) cFunDef
 rewrite cExtDecl scheme@(Forall [] (cs :=> t)) = do
   let name = getCName cExtDecl
   pType <- gets ((Map.! name) . polyTypes)
   let
     Just cId = pTypeClass pType
     Just (IsIn _ cT) = List.find (\(IsIn cId' t') -> cId' == cId) cs
-    substs = catMaybes
+    substs = catMaybes  -- TODO
       [ if c == cT
            -- || not (null . runTI $ mgu cT c)
           then Just def

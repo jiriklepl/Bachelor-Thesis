@@ -10,7 +10,7 @@ module CHM.Transform
   , runInfer
   , initTransformMonad
   , createParamsType
-  , translateCHMType
+  , transformCHMType
   , getTransformResult
   , chmScheme
   , takeNKind
@@ -24,6 +24,7 @@ import Debug.Trace
 import Control.Monad.State
 import Control.Monad((>=>), when)
 import qualified Data.Set as Set
+import Data.Maybe
 
 import TypingHaskellInHaskell
 
@@ -36,14 +37,22 @@ import CHM.TransformMonad
 
 {- |
   Takes a C construct, parses it (with side effects
-  kept in TState), and returns a thih `Program`
+  kept in 'TState'), and returns a thih 'Program'
 -}
 class Transform a where
   transform :: a -> TState Program
 
+{- |
+  Just transforms the C construct into its
+-}
 getTransformResult :: Transform a => a -> Program
 getTransformResult = fst . runTState . transform
 
+{- |
+  Runs thih on the given thih 'Program' using environment
+  consisting of 'builtIns' and 'memberClasses' retrieved from the state
+  and the given 'Assump's
+-}
 typeInfer :: [Assump] -> Program -> TState [Assump]
 typeInfer assumps program = do
   TransformMonad{builtIns = bIs, memberClasses = mCs}  <- get
@@ -51,6 +60,10 @@ typeInfer assumps program = do
     Nothing -> return $ error "Environment corrupted"
     Just cEnv -> return $ tiProgram cEnv (Set.toList bIs ++ assumps) program
 
+{- |
+  Runs thih on the given C construct after transforming it
+  (using new state)
+-}
 runInfer :: Transform a => a -> [Assump]
 runInfer a =
   let
@@ -58,10 +71,10 @@ runInfer a =
       runTState . transform $ a
   in
     case mCs initialEnv of
-      Nothing -> ["@programEnvironment" :>: toScheme tError]  -- TODO: but I like it like it is
+      Nothing -> error "Environment is broken"
       Just env -> tiProgram env (Set.toList bIs) program
 
--- | Takes a `Program` and flattens it into a `BindGroup`
+-- | Takes a 'Program' and flattens it into a 'BindGroup'
 flattenProgram :: Program -> BindGroup
 flattenProgram ((expls, impls) : rest) =
   let
@@ -192,13 +205,15 @@ translateDeclSpecs (decl:decls) = case decl of
   CTypeSpec (CInt128Type _) -> return tInt128
   CTypeSpec (CSUType (CStruct CStructTag (Just (Ident sId _ _)) Nothing _ _) _) -> do
     kind <- getStructKind sId
-    return $ TCon (Tycon sId kind)  -- TODO: same as TypeDef (just few rows below)
+    return $ TCon (Tycon sId kind)
   CTypeSpec (CSUType (CStruct CStructTag (Just (Ident sId _ _)) (Just cDecls) _ _) _) ->
     registerStructMembers sId cDecls >> return (TCon (Tycon sId Star))
   CTypeSpec (CSUType (CStruct CStructTag Nothing _ _ _) _ ) -> return tError  -- TODO
-  CTypeSpec (CSUType (CStruct CUnionTag (Just (Ident sId _ _)) _ _ _) _) -> do
+  CTypeSpec (CSUType (CStruct CUnionTag (Just (Ident sId _ _)) Nothing _ _) _) -> do
     kind <- getStructKind sId
-    return $ TCon (Tycon sId kind)  -- TODO: same as TypeDef (just few rows below)
+    return $ TCon (Tycon sId kind)
+  CTypeSpec (CSUType (CStruct CUnionTag (Just (Ident sId _ _)) (Just cDecls) _ _) _) ->
+    registerStructMembers sId cDecls >> return (TCon (Tycon sId Star))
   CTypeSpec (CSUType (CStruct CUnionTag Nothing _ _ _) _) -> return tError  -- TODO
   CTypeSpec (CTypeDef (Ident sId _ _) _) -> do
     name <- scopedName sId
@@ -532,17 +547,27 @@ transformFunDef (CFunDef specs (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _
       , []
       )
 
-instance Transform CHMFunDef where
-  transform (CHMFunDef chmHead funDef@(CFunDef _ (CDeclr (Just (Ident sId _ _)) _ _ _ _) _ _ _) _) = do
-    name <- sgName sId
-    enterFunction sId
+beginCHMFunDef :: CHMHead -> Id -> TState Id
+beginCHMFunDef chmHead name = do
+    name' <- sgName name
+    enterFunction name
     enterCHMHead
-    chmHead' <- transform chmHead
+    _ <- transform chmHead
+    return name'
+
+instance Transform CHMFunDef where
+  transform (CHMFunDef chmHead funDef _) = do
+    name <- beginCHMFunDef chmHead (getCName funDef)
     rtrn <- transformFunDef funDef name >>= chmSchemize
     leaveCHMHead
     leaveFunction
     return [rtrn]
 
+{- |
+  Transforms a 'CHMFunDef' without making it generic,
+  also creates variables for each type declared in the header
+  (including aliases).
+-}
 class TransformCHMFunDef a where
   transformCHMFunDef :: a -> TState Program
 
@@ -555,7 +580,7 @@ class GetAliases a where
 
 instance GetAliases CHMConstr where
   getAliases (CHMUnifyConstr (Ident name _ _) chmType _) = do
-    chmType' <- translateCHMType chmType
+    chmType' <- transformCHMType chmType
     return [name :>: toScheme chmType']
   getAliases _ = return []
 
@@ -563,11 +588,8 @@ instance GetAliases a => GetAliases [a] where
   getAliases as = concat <$> traverse getAliases as
 
 instance TransformCHMFunDef CHMFunDef where
-  transformCHMFunDef (CHMFunDef chmHead@(CHMHead tVars chmConstrs _) funDef@(CFunDef _ (CDeclr (Just (Ident sId _ _)) _ _ _ _) _ _ _) _) = do
-    name <- sgName sId
-    enterFunction sId
-    enterCHMHead
-    chmHead' <- transform chmHead
+  transformCHMFunDef (CHMFunDef chmHead@(CHMHead tVars chmConstrs _) funDef _) = do
+    name <- beginCHMFunDef chmHead (getCName funDef)
     tVars' <- gets ((toScheme . TVar <$>) . reverse . head . typeVariables)
     let
       tVarNames = [name ++ ':' : tId | (Ident tId _ _) <- tVars]
@@ -626,7 +648,34 @@ instance Transform CStat where
       expr' <- transformExpr expr
       stmt' <- transform stmt
       return $ ([],[[(anonName, [([],expr')])]]) : stmt'  -- TODO
-    CFor _ _ _ a _ -> return []  -- TODO
+    CFor (Left expr1) expr2 expr3 stmt a -> do
+      anonNum <- show <$> getNextAnon
+      expr1' <- traverse transformExpr expr1
+      let expr1'' = (\e -> ("@For:" ++ anonNum, [([], e)])) <$>  expr1'
+      expr2' <- traverse transformExpr expr2  -- TODO
+      let expr2'' = (\e -> ("@ForCond:" ++ anonNum, [([], e)])) <$> expr2'
+      expr3' <- traverse transformExpr expr3
+      let expr3'' = (\e -> ("@ForInc:" ++ anonNum, [([], e)])) <$> expr3'
+      stmt' <- transform stmt
+      return $
+        ( []
+        , [catMaybes [expr1'', expr2'', expr3'']]
+        ) : stmt'
+    CFor (Right decl) expr2 expr3 stmt a -> do
+      anonNum <- show <$> getNextAnon
+      enterScope []
+      decl' <- transform decl
+      let [([(name, scheme, alts)], _)] = decl'
+      expr2' <- traverse transformExpr expr2  -- TODO
+      let expr2'' = (\e -> ("@ForCond:" ++ anonNum, [([], e)])) <$> expr2'
+      expr3' <- traverse transformExpr expr3
+      let expr3'' = (\e -> ("@ForInc:" ++ anonNum, [([], e)])) <$> expr3'
+      stmt' <- transform stmt
+      leaveScope
+      return $
+        ( [(name, scheme, alts)]
+        , [catMaybes [expr2'', expr3'']]
+        ) : stmt'
     CGoto _ _ -> return []
     CGotoPtr _ _ -> return []  -- TODO
     CCont _ ->  return []
@@ -673,11 +722,12 @@ fixKinds t = do
     putAp (TVar (Tyvar _ _)) (id, kind) = TVar $ Tyvar id kind
   return $ putAp t ap
 
-translateCHMType :: CHMT -> TState Type
-translateCHMType (CHMCType declSpecs _) = translateDeclSpecs declSpecs
-translateCHMType (CHMParType cType (CHMParams cTypes _) _) = do
-  cType' <- translateCHMType cType
-  cTypes' <- traverse translateCHMType cTypes
+-- | Transforms a 'CHMT' into its corresponding thih 'Type'
+transformCHMType :: CHMT -> TState Type
+transformCHMType (CHMCType declSpecs _) = translateDeclSpecs declSpecs
+transformCHMType (CHMParType cType (CHMParams cTypes _) _) = do
+  cType' <- transformCHMType cType
+  cTypes' <- traverse transformCHMType cTypes
   let
     apT = foldl TAp cType' cTypes'
   fixKinds apT
@@ -687,10 +737,10 @@ transformConstraint constr =
   case constr of
     (CHMClassConstr (Ident id _ _) cTypes _) -> do
       let count = length cTypes
-      cTypes' <- traverse translateCHMType cTypes
+      cTypes' <- traverse transformCHMType cTypes
       return . Just . IsIn id $ createParamsType cTypes'
     (CHMUnifyConstr (Ident id _ _) cType _) -> do
-      cType' <- translateCHMType cType
+      cType' <- transformCHMType cType
       sgName id >>= flip chmAddAlias cType'
       return Nothing
 
@@ -711,30 +761,27 @@ instance Transform CHMHead where
     return []
 
 instance Transform CHMStructDef where
-  -- TODO
-  transform (CHMStructDef chmHead (CStruct CStructTag (Just (Ident sId _ _)) (Just cDecls) _ _) _) = do
+  transform (CHMStructDef chmHead (CStruct _ (Just (Ident sId _ _)) (Just cDecls) _ _) _) = do
     enterCHMHead
     chmHead' <- transform chmHead
     registerCHMStructMembers sId cDecls
     leaveCHMHead
     return []
 
-
-
 {- |
   Registers a new class and declares its content,
   adds an entry for each declaration to the transform monad
   (as we have to remember them when making instances of the class)
-  TODO: this looks too obfuscated (more so than how haskell usually looks)
 -}
 declareClassContents :: Id -> [CExtDecl] -> TState [Expl]
 declareClassContents id cExtDecls = do
   registered <- registerClass id
   let
+    onlyPureMsg = "only pure declarations allowed here"
     classDeclare (CDeclExt cDecl) = do
       let
         onlyPureDeclarationError =
-          mkErrorInfo LevelError "only pure declarations allowed here" $ nodeInfo cDecl
+          mkErrorInfo LevelError onlyPureMsg $ nodeInfo cDecl
         translateDeclaration ([(name, Forall [] ([] :=> t), [([], Const (name2 :>: _))])], []) = do
           unless (name == name2) . error . show $ onlyPureDeclarationError
           scheme <- chmScheme t
@@ -743,7 +790,7 @@ declareClassContents id cExtDecls = do
         translateDeclaration as = error . show $ onlyPureDeclarationError
       transform cDecl >>= traverse translateDeclaration
     classDeclare c = error . show .
-      mkErrorInfo LevelError "only pure declarations allowed here" $ nodeInfo c
+      mkErrorInfo LevelError onlyPureMsg $ nodeInfo c
   if registered then concat <$> traverse classDeclare cExtDecls
   else error $ "Classed " ++ id ++ " redefined"
 
@@ -760,7 +807,7 @@ instance Transform CHMCDef where
 -}
 defineInstanceContents :: Id -> CHMParams -> [CExtDecl] -> TState BindGroup
 defineInstanceContents id (CHMParams chmTypes _) cExtDecls = do
-  parType <- traverse translateCHMType chmTypes >>= replaceAliases . createParamsType
+  parType <- traverse transformCHMType chmTypes >>= replaceAliases . createParamsType
   let
     instanceDefine (CFDefExt f) =
       instanceDefine . CHMFDefExt $ CHMFunDef

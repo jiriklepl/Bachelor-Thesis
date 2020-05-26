@@ -34,9 +34,7 @@ instance Magic CExtDecl where
       name = getCName a
       sKind = takeNKind $ length chmIdents
       sType = TCon $ Tycon name sKind
-    case getSUType a of
-      CStructTag -> createPolyStruct name (toScheme sType) a
-      CUnionTag -> createPolyUnion name (toScheme sType) a
+    createPolyStruct name (toScheme sType) a
     return []
   magic a@(CDeclExt _) = do
     _ <- parse a
@@ -61,7 +59,7 @@ instance Magic CExtDecl where
   -- TODO: CHMIDefHead
   magic a@(CHMIDefExt (CHMIDef iName (CHMParams chmTypes _) cExtDecls _)) = do
     a' <- parse a
-    parType <- runTState $ createParamsType <$> traverse translateCHMType chmTypes
+    parType <- runTState $ createParamsType <$> traverse transformCHMType chmTypes
     sequence_
       [ let
           fName = getCName cExtDecl

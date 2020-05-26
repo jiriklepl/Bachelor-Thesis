@@ -113,7 +113,7 @@ import Language.C.Data
 import Language.C.Syntax
 import Language.C.Data.Ident (Ident(..))
 
--- | Abstraction of a local variable `Scope`
+-- | Abstraction of a local variable 'Scope'
 data Scope = Scope
   { scopeName :: Id
   , scopeId :: Int
@@ -122,7 +122,7 @@ data Scope = Scope
 
 type ReturnExpr = Expr
 
--- | Initialize a new `Scope`
+-- | Initialize a new 'Scope'
 initScope :: Id -> Int -> Scope
 initScope name id = Scope
   { scopeName = name
@@ -130,35 +130,35 @@ initScope name id = Scope
   , scopeVars = Set.empty
   }
 
--- | Remembers the method's `Scheme` and a set of `Type`s of its instances
+-- | Remembers the method's 'Scheme' and a set of 'Type's of its instances
 data Method = Method
   { methodScheme :: Scheme
   , methodInstances :: Set.Set Type
   }
 
--- | Initializes a new `Method`
+-- | Initializes a new 'Method'
 initMethod :: Scheme -> Method
 initMethod s = Method
   { methodScheme = s
   , methodInstances = Set.empty
   }
 
-data Struct = Struct
+newtype Struct = Struct
   { structKind :: Kind
   }
 
-data UserClass = UserClass
+newtype UserClass = UserClass
   { methods :: Map.Map Id Method
   }
 
--- | Used mainly in lists of `Method`s
+-- | Used mainly in lists of 'Method's
 type MethodNamed = (Id, Method)
 
--- | Returns a list of `Method`s of the given `UserClass`
+-- | Returns a list of 'Method's of the given 'UserClass'
 getClassMethods :: UserClass -> [MethodNamed]
 getClassMethods = Map.toList . methods
 
--- | Initializes a new `UserClass`
+-- | Initializes a new 'UserClass'
 initUserClass :: UserClass
 initUserClass = UserClass
   { methods = Map.empty
@@ -203,6 +203,7 @@ data TransformMonad = TransformMonad
     -- ^ all created symbols
   }
 
+-- | Monad that holds the side effects of parsing the AST
 type TState = State TransformMonad
 
 -- | Common type constants
@@ -214,21 +215,20 @@ tError = TCon (Tycon "@Error" Star)
 tTuple3 = TCon (Tycon "(,,)3" (Kfun Star (Kfun Star (Kfun Star Star))))
 
 -- pointer reference & dereference functions
--- TODO: say something clever here
+-- | thih representation of the unary & operator
 ref :: Expr -> Expr
+-- | thih representation of the unary * operator
 deref :: Expr -> Expr
+-- | thih representation of the * in declarations
 pointer :: Type -> Type
-trio :: Type -> Type -> Type -> Type
-fst3 :: (a, b, c) -> a
 
 ref = Ap (Var refFunc)
 deref = Ap (Var derefFunc)
 pointer = TAp tPointer
-trio = (TAp .) . TAp . TAp tTuple3
-fst3 (a, _, _) = a
 
--- | Assigns the `Id` of a function which represents the given operator
+
 class OperatorFunction a where
+  -- | Return the 'Id' of a function which represents the given operator
   operatorFunction :: a -> Id
 
 instance OperatorFunction CAssignOp where
@@ -281,7 +281,7 @@ instance OperatorFunction CUnaryOp where
 
 {- |
   These functions represent various operators and other
-  language features that act like operators (e.g. `CReturn`)
+  language features that act like operators (e.g. 'CReturn')
 -}
 mulOpFunc, divOpFunc, modOpFunc, addOpFunc, subOpFunc,
   shlOpFunc, shrOpFunc, xorOpFunc, orOpFunc, andOpFunc,
@@ -337,14 +337,14 @@ andAssOpFunc  = "&=2"  -- TODO
 xorAssOpFunc  = "^=2"  -- TODO
 orAssOpFunc   = "|=2"  -- TODO
 
-preIncOpFunc  = "++1"  -- TODO
-postIncOpFunc = "1++"  -- TODO
-preDecOpFunc  = "--1"  -- TODO
-postDecOpFunc = "1--"  -- TODO
-plusOpFunc    = "+1"  -- TODO
-minusOpFunc   = "-1"  -- TODO
-complOpFunc   = "~1"  -- TODO
-negOpFunc     = "!1"  -- TODO
+preIncOpFunc  = "++1"
+postIncOpFunc = "1++"
+preDecOpFunc  = "--1"
+postDecOpFunc = "1--"
+plusOpFunc    = "+1"
+minusOpFunc   = "-1"
+complOpFunc   = "~1"
+negOpFunc     = "!1"
 
 commaOpFunc   = ",2"
 ternaryOpFunc = "?:3"
@@ -393,66 +393,86 @@ initTransformMonad =
       -- all built-in instances (work in -- TODO)
       <:> addInst [] (IsIn "Num" tInt)
       <:> addInst [] (IsIn "Add" tInt)
-      <:> addInst [] (IsIn "Add" (pair tFloat tFloat))
-      <:> addInst [] (IsIn "Add" (pair tDouble tDouble))
-      <:> addInst [] (IsIn "Add" (pair (pointer aTVar) (pointer bTVar)))
-      <:> addInst [] (IsIn "Sub" (pair tInt tInt))
-      <:> addInst [] (IsIn "Sub" (pair tFloat tFloat))
-      <:> addInst [] (IsIn "Sub" (pair tDouble tDouble))
-      <:> addInst [] (IsIn "Sub" (pair (pointer aTVar) (pointer bTVar)))
+      <:> addInst [] (IsIn "Add" tChar)
+      <:> addInst [] (IsIn "Add" tFloat)
+      <:> addInst [] (IsIn "Add" tDouble)
+      <:> addInst [] (IsIn "Add" (pointer aTVar))
+      <:> addInst [] (IsIn "Sub" tInt)
+      <:> addInst [] (IsIn "Sub" tChar)
+      <:> addInst [] (IsIn "Sub" tFloat)
+      <:> addInst [] (IsIn "Sub" tDouble)
+      <:> addInst [] (IsIn "Sub" (pointer aTVar))
       <:> addInst [] (IsIn "Mul" tInt)
-      <:> addInst [] (IsIn "Mul" (pair tFloat tFloat))
-      <:> addInst [] (IsIn "Mul" (pair tDouble tDouble))
-      <:> addInst [] (IsIn "Div" (pair tInt tInt))
-      <:> addInst [] (IsIn "Div" (pair tFloat tFloat))
-      <:> addInst [] (IsIn "Div" (pair tDouble tDouble))
+      <:> addInst [] (IsIn "Mul" tFloat)
+      <:> addInst [] (IsIn "Mul" tDouble)
+      <:> addInst [] (IsIn "Div" tInt)
+      <:> addInst [] (IsIn "Div" tFloat)
+      <:> addInst [] (IsIn "Div" tDouble)
       <:> addInst [] (IsIn "Mod" (pair tInt tInt))
-      <:> addInst [] (IsIn "Eq"  (pair tInt tInt))
-      <:> addInst [] (IsIn "Eq"  (pair tFloat tFloat))
-      <:> addInst [] (IsIn "Eq"  (pair tDouble tDouble))
-      <:> addInst [] (IsIn "Eq"  (pair (pointer aTVar) (pointer bTVar)))
-      <:> addInst [] (IsIn "LG"  (pair tInt tInt))
-      <:> addInst [] (IsIn "LG"  (pair tFloat tFloat))
-      <:> addInst [] (IsIn "LG"  (pair tDouble tDouble))
-      <:> addInst [] (IsIn "LG"  (pair (pointer aTVar) (pointer bTVar)))
-      <:> addInst [] (IsIn "BinOp"  (pair tInt tInt))
-      <:> addInst [] (IsIn "BinOp"  (pair (pointer aTVar) (pointer bTVar)))
+      <:> addInst [] (IsIn "Eq"  tInt)
+      <:> addInst [] (IsIn "Eq"  tChar)
+      <:> addInst [] (IsIn "Eq"  tFloat)
+      <:> addInst [] (IsIn "Eq"  tDouble)
+      <:> addInst [] (IsIn "Eq"  (pointer aTVar))
+      <:> addInst [] (IsIn "LG"  tInt)
+      <:> addInst [] (IsIn "LG"  tChar)
+      <:> addInst [] (IsIn "LG"  tFloat)
+      <:> addInst [] (IsIn "LG"  tDouble)
+      <:> addInst [] (IsIn "LG"  (pointer aTVar))
+      <:> addInst [] (IsIn "BinOp"  tInt)
+      <:> addInst [] (IsIn "BinOp"  tBool)
+      <:> addInst [] (IsIn "BinOp"  tChar)
     , builtIns =
       let
-        -- functions of the form 'a -> a -> a'
+        -- functions of the type 'a -> a'
+        aaFuncWithClasses cs = quantify [aVar] (cs :=> (aTVar `fn` aTVar))
+        -- functions of the type 'a -> a -> a'
         aaaFuncWithClasses cs = quantify [aVar] (cs :=> (aTVar `fn` aTVar `fn` aTVar))
-        -- functions of the form '(a, a) -> a'
-        t2aaaFuncWithClasses cs = quantify [aVar] (cs :=> (tupledTypes [aTVar, aTVar] `fn` aTVar))
-        -- functions of the form 'a -> a -> Void'
+        -- functions of the type '(a, a) -> a'
+        t2aaaFuncWithClasses cs = quantify [aVar] (cs :=> (tupleTypes [aTVar, aTVar] `fn` aTVar))
+        -- functions of the type 'a -> a -> Void'
         aaVFuncWithClasses cs = quantify [aVar] (cs :=> (aTVar `fn` aTVar `fn` tVoid))
-        -- functions of the form '(a, a) -> Void'
-        t2aaVFuncWithClasses cs = quantify [aVar] (cs :=> (tupledTypes [aTVar, aTVar] `fn` tVoid))
-        -- functions of the form 'a -> b -> a'
+        -- functions of the type '(a, a) -> Void'
+        t2aaVFuncWithClasses cs = quantify [aVar] (cs :=> (tupleTypes [aTVar, aTVar] `fn` tVoid))
+        -- functions of the type 'a -> b -> a'
         abaFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (aTVar `fn` bTVar `fn` aTVar))
-        -- functions of the form '(a, b) -> a'
-        t2abaFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (tupledTypes [aTVar, bTVar] `fn` aTVar))
-        -- functions of the form 'a -> b -> Bool'
-        abBFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (aTVar `fn` bTVar `fn` tBool))
-        -- functions of the form '(a, b) -> Bool'
-        t2abBFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (tupledTypes [aTVar, bTVar] `fn` tBool))
+        -- functions of the type '(a, b) -> a'
+        t2abaFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (tupleTypes [aTVar, bTVar] `fn` aTVar))
+        -- functions of the type 'a -> b -> Bool'
+        aaBFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (aTVar `fn` aTVar `fn` tBool))
+        -- functions of the type '(a, b) -> Bool'
+        t2abBFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (tupleTypes [aTVar, bTVar] `fn` tBool))
       in Set.fromList
-        [ addOpFunc :>: aaaFuncWithClasses [IsIn "Add" aTVar]  -- TODO: all arithmetics
-        , subOpFunc :>: abaFuncWithClasses [IsIn "Sub" (pair aTVar bTVar)]
+        [ addOpFunc :>: aaaFuncWithClasses [IsIn "Add" aTVar]
+        , subOpFunc :>: aaaFuncWithClasses [IsIn "Sub" aTVar]
         , mulOpFunc :>: aaaFuncWithClasses [IsIn "Mul" aTVar]
-        , divOpFunc :>: abaFuncWithClasses [IsIn "Div" (pair aTVar bTVar)]
-        , modOpFunc :>: abaFuncWithClasses [IsIn "Mod" (pair aTVar bTVar)]
+        , divOpFunc :>: aaaFuncWithClasses [IsIn "Div" aTVar]
+        , modOpFunc :>: aaaFuncWithClasses [IsIn "Mod" aTVar]
         , assOpFunc :>: aaaFuncWithClasses []
-        , addAssOpFunc :>: abaFuncWithClasses [IsIn "Add" (pair aTVar bTVar)]
-        , subAssOpFunc :>: abaFuncWithClasses [IsIn "Sub" (pair aTVar bTVar)]
-        , mulAssOpFunc :>: abaFuncWithClasses [IsIn "Mul" (pair aTVar bTVar)]
-        , divAssOpFunc :>: abaFuncWithClasses [IsIn "Div" (pair aTVar bTVar)]
-        , modAssOpFunc :>: abaFuncWithClasses [IsIn "Mod" (pair aTVar bTVar)]
-        , eqOpFunc :>: abBFuncWithClasses [IsIn "Eq" (pair aTVar bTVar)]
-        , neqOpFunc :>: abBFuncWithClasses [IsIn "Eq" (pair aTVar bTVar)]
-        , ltOpFunc :>: abBFuncWithClasses [IsIn "LG" (pair aTVar bTVar)]
-        , gtOpFunc :>: abBFuncWithClasses [IsIn "LG" (pair aTVar bTVar)]
-        , leOpFunc :>: abBFuncWithClasses [IsIn "LG" (pair aTVar bTVar), IsIn "Eq" (pair aTVar bTVar)]
-        , geOpFunc :>: abBFuncWithClasses [IsIn "LG" (pair aTVar bTVar), IsIn "Eq" (pair aTVar bTVar)]
+        , addAssOpFunc :>: aaaFuncWithClasses [IsIn "Add" aTVar]
+        , subAssOpFunc :>: aaaFuncWithClasses [IsIn "Sub" aTVar]
+        , mulAssOpFunc :>: aaaFuncWithClasses [IsIn "Mul" aTVar]
+        , divAssOpFunc :>: aaaFuncWithClasses [IsIn "Div" aTVar]
+        , modAssOpFunc :>: aaaFuncWithClasses [IsIn "Mod" aTVar]
+        -- , shlAssOpFunc :>:
+        -- , shrAssOpFunc :>:
+        , andAssOpFunc :>: aaFuncWithClasses [IsIn "BinOp" aTVar]
+        , xorAssOpFunc :>: aaFuncWithClasses [IsIn "BinOp" aTVar]
+        , orAssOpFunc :>: aaFuncWithClasses [IsIn "BinOp" aTVar]
+        , eqOpFunc :>: aaBFuncWithClasses [IsIn "Eq" aTVar]
+        , neqOpFunc :>: aaBFuncWithClasses [IsIn "Eq" aTVar]
+        , ltOpFunc :>: aaBFuncWithClasses [IsIn "LG" aTVar]
+        , gtOpFunc :>: aaBFuncWithClasses [IsIn "LG" aTVar]
+        , leOpFunc :>: aaBFuncWithClasses [IsIn "LG" aTVar, IsIn "Eq" aTVar]
+        , geOpFunc :>: aaBFuncWithClasses [IsIn "LG" aTVar, IsIn "Eq" aTVar]
+        , preIncOpFunc  :>: aaFuncWithClasses [IsIn "Num" aTVar, IsIn "Add" aTVar]
+        , postIncOpFunc :>: aaFuncWithClasses [IsIn "Num" aTVar, IsIn "Add" aTVar]
+        , preDecOpFunc  :>: aaFuncWithClasses [IsIn "Num" aTVar, IsIn "Sub" aTVar]
+        , postDecOpFunc :>: aaFuncWithClasses [IsIn "Num" aTVar, IsIn "Sub" aTVar]
+        , plusOpFunc    :>: aaFuncWithClasses [IsIn "Add" aTVar]
+        , minusOpFunc   :>: aaFuncWithClasses [IsIn "Sub" aTVar]
+        , complOpFunc   :>: aaFuncWithClasses [IsIn "BinOp" aTVar]
+        , negOpFunc     :>: toScheme (tBool `fn` tBool)
         , commaOpFunc :>: quantify [aVar, bVar] ([] :=> (aTVar `fn` bTVar `fn` bTVar))
         , ternaryOpFunc :>: quantify [aVar, bVar] ([] :=> (aTVar `fn` bTVar `fn` bTVar `fn` bTVar)) -- TODO: aTVar has to be 0 comparable
         , elvisOpFunc :>: quantify [aVar, bVar] ([] :=> (aTVar `fn` bTVar `fn` bTVar)) -- TODO: aTVar has to be 0 comparable
@@ -484,7 +504,7 @@ getFunctionName = do
   scopedName . fst . head $ fScopes
 
 {- |
-  Returns the `Scope` that contains the closest match for the given
+  Returns the 'Scope' that contains the closest match for the given
   symbol
 -}
 findName :: Id -> TState (Maybe Scope)
@@ -500,7 +520,7 @@ findName id = do
         recursiveSearch i scopes
   return (recursiveSearch id ns)
 
--- | Stores the symbol to the given `Scope`
+-- | Stores the symbol to the given 'Scope'
 storeName :: Id -> TState ()
 storeName id = do
   state@TransformMonad{nested = ns} <- get
@@ -518,6 +538,7 @@ scopedName id = do
     Just s -> return $ renameScoped s id
     _ -> return $ "@Error:" ++ id
 
+-- | Stores the given name to the current scope and returns its qualified name
 sgName :: Id -> TState Id
 sgName id = storeName id >> scopedName id
 
@@ -528,10 +549,11 @@ getNextAnon = do
   put state {anonymousCounter = i + 1}
   return i
 
+-- | Appends next anon number to the given name, see 'getNextAnon'
 appendNextAnon :: Id -> TState Id
-appendNextAnon id = (id ++) . show <$> getNextAnon
+appendNextAnon id = (id ++) . (':' :) . show <$> getNextAnon
 
--- | Pushes the scopes of type variables
+-- | Pushes the scopes of type variables (and aliases) and their classes
 enterCHMHead :: TState ()
 enterCHMHead = do
   state@TransformMonad
@@ -545,6 +567,7 @@ enterCHMHead = do
     , typeAliases = Map.empty : tAs
     }
 
+-- | adds the given type variable to the current chmHead scope
 chmAddVariable :: Tyvar -> TState ()
 chmAddVariable tyvar = do
   state@TransformMonad{typeVariables = tVs} <- get
@@ -552,6 +575,7 @@ chmAddVariable tyvar = do
     ts:rest -> put state{typeVariables = (tyvar : ts) : rest}
     _ -> return . error $ "not in chm head block"
 
+-- | adds the given type alias to the current chmHead scope
 chmAddAlias :: Id -> Type -> TState ()
 chmAddAlias id t = do
   state@TransformMonad{typeAliases = tAs} <- get
@@ -561,6 +585,7 @@ chmAddAlias id t = do
       }
     _ -> return . error $ "not in chm head block"
 
+-- | adds the given class predicate to the current chmHead scope
 chmAddClass :: Pred -> TState ()
 chmAddClass p = do
   state@TransformMonad{variableClasses = cs} <- get
@@ -568,6 +593,7 @@ chmAddClass p = do
     c:rest -> put state{variableClasses = (p : c) : rest}
     _ -> return . error $ "not in chm head block"
 
+-- | Pulls all scopes of type variables (and aliases) and their classes
 leaveCHMHead :: TState ()
 leaveCHMHead = do
   state@TransformMonad
@@ -740,13 +766,13 @@ getTupleOp n =
     )
 
 -- | Transforms a list of types to a tuple (see 'getTupleOp')
-tupledTypes :: [Type] -> Type
-tupledTypes ts = foldl TAp (getTupleOp . length $ ts) ts
+tupleTypes :: [Type] -> Type
+tupleTypes ts = foldl TAp (getTupleOp . length $ ts) ts
 
 -- | Returns a function that takes the specified 'Type's
 -- and returns a tuple of them (see 'tupleTypes')
 tupleize :: [Type] -> Type
-tupleize ts = foldr fn (tupledTypes ts) ts
+tupleize ts = foldr fn (tupleTypes ts) ts
 
 -- | Returns the 'Scheme' of a tuple constructor that takes 'Int' 'Type's
 getTupleCon :: Int -> Scheme
@@ -781,15 +807,17 @@ memberClassName id = "Has_" ++ id
 memberGetterName :: Id -> Id
 memberGetterName id = ".get:" ++ id
 
--- 'getMember' creates a member accessor
--- (if it doesn't exist, and its "@Has_X" class)
--- and returns its id
+{- |
+  Returns id of the given member's getter
+-}
 getMember :: Ident -> TState Id
 getMember id@(Ident sId _ _) = return $ memberGetterName sId
 
--- registers a member getter for the given struct and its member
--- expressed via their ids respectively,
--- creates the member's getter class if it doesn't exist
+{- |
+  Registers a member getter for the given struct and its member
+  expressed via their ids respectively,
+  creates the member's getter class if it doesn't exist
+-}
 registerMember :: Id -> Id -> Type -> TState ()
 registerMember sId mId t = do
   state@TransformMonad
@@ -932,13 +960,17 @@ registerClassDeclaration cId (mId :>: scheme) = do
 getMethodScheme :: Id -> Id -> TState (Maybe Scheme)
 getMethodScheme cId mId = do
   state@TransformMonad{userClasses=uCs} <- get
-  return $ methodScheme <$> (Map.lookup mId =<< methods <$> Map.lookup cId uCs)
+  return $ methodScheme <$> (Map.lookup mId . methods =<< Map.lookup cId uCs)
 
 mangleName :: Id -> Type -> TState Id
 mangleName id mType = do
   num <- getNextAnon
   return $ id ++ '_' : show num  -- TODO
 
+{- |
+  Adds a new instance of a method of the given class
+  using the given name and the given type (in this order)
+-}
 registerMethodInstance :: Id -> Id -> Type -> TState Id
 registerMethodInstance cId mId mType = do
   state@TransformMonad{userClasses=uCs, memberClasses=mCs} <- get
@@ -969,7 +1001,8 @@ registerMethodInstance cId mId mType = do
     }
   return name
 
-runTState :: TState a -> (a,TransformMonad)
+-- | Supplies the initial state to a 'runState' call
+runTState :: TState a -> (a, TransformMonad)
 runTState a = runState a initTransformMonad
 
 -- | Returns the name of the given C construct
@@ -997,12 +1030,13 @@ instance GetCName CExtDecl where
 instance GetCName CDecl where
   getCName (CDecl _ [(Just (CDeclr (Just (Ident name _ _)) (CFunDeclr{} : _) _ _ _), Nothing, Nothing)] _) = name
 
+-- | gets data from 'CStructUnion's and derived types
 class GetCName a => GetSU a where
   getSUName :: a -> Id
   getSUType :: a -> CStructTag
   getSUName = getCName
 
--- | Retrieves the encapsulated CStructUnion object
+-- | Retrieves the encapsulated 'CStructUnion' object
 instance GetSU CExtDecl where
   getSUType (CHMSDefExt chmStructDef) = getSUType chmStructDef
 
