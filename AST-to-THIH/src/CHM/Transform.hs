@@ -34,6 +34,10 @@ import Language.C.Syntax
 
 import CHM.TransformMonad
 
+{- |
+  Takes a C construct, parses it (with side effects
+  kept in TState), and returns a thih `Program`
+-}
 class Transform a where
   transform :: a -> TState Program
 

@@ -113,12 +113,13 @@ import Language.C.Data
 import Language.C.Syntax
 import Language.C.Data.Ident (Ident(..))
 
--- | Abstraction of a local variable Scope
+-- | Abstraction of a local variable `Scope`
 data Scope = Scope
   { scopeName :: Id
   , scopeId :: Int
   , scopeVars :: Set.Set Id
   }
+
 type ReturnExpr = Expr
 
 -- | Initialize a new `Scope`
@@ -150,10 +151,11 @@ data UserClass = UserClass
   { methods :: Map.Map Id Method
   }
 
+-- | Used mainly in lists of `Method`s
 type MethodNamed = (Id, Method)
 
 -- | Returns a list of `Method`s of the given `UserClass`
-getClassMethods :: UserClass -> [(Id, Method)]
+getClassMethods :: UserClass -> [MethodNamed]
 getClassMethods = Map.toList . methods
 
 -- | Initializes a new `UserClass`
@@ -162,6 +164,7 @@ initUserClass = UserClass
   { methods = Map.empty
   }
 
+-- | Contains all side effects of parsing the C AST to its thih representation
 data TransformMonad = TransformMonad
   { tuples :: Set.Set Int
     -- ^ memory of created tuple makers
@@ -202,6 +205,7 @@ data TransformMonad = TransformMonad
 
 type TState = State TransformMonad
 
+-- | Common type constants
 tPointer, tConst, tError, tTuple3 :: Type
 
 tPointer = TCon (Tycon "@Pointer" (Kfun Star Star))
@@ -352,6 +356,7 @@ derefFunc     = "*1"
 returnFunc    = "@return"
 caseFunc      = "@case"
 
+-- | Initializes the transform monad's state
 initTransformMonad :: TransformMonad
 initTransformMonad =
   let
@@ -478,6 +483,10 @@ getFunctionName = do
   TransformMonad{functionScopes = fScopes} <- get
   scopedName . fst . head $ fScopes
 
+{- |
+  Returns the `Scope` that contains the closest match for the given
+  symbol
+-}
 findName :: Id -> TState (Maybe Scope)
 findName id = do
   TransformMonad{nested = ns} <- get
@@ -491,6 +500,7 @@ findName id = do
         recursiveSearch i scopes
   return (recursiveSearch id ns)
 
+-- | Stores the symbol to the given `Scope`
 storeName :: Id -> TState ()
 storeName id = do
   state@TransformMonad{nested = ns} <- get
@@ -500,6 +510,7 @@ storeName id = do
         { nested = scope{scopeVars = id `Set.insert` names} : rest
         }
 
+-- | Retrieves the unique form of the name of the symbol
 scopedName :: Id -> TState Id
 scopedName id = do
   scope <- findName id
@@ -510,6 +521,7 @@ scopedName id = do
 sgName :: Id -> TState Id
 sgName id = storeName id >> scopedName id
 
+-- | Counts numbers to help give unique names
 getNextAnon :: TState Int
 getNextAnon = do
   state@TransformMonad{anonymousCounter = i} <- get
@@ -519,6 +531,7 @@ getNextAnon = do
 appendNextAnon :: Id -> TState Id
 appendNextAnon id = (id ++) . show <$> getNextAnon
 
+-- | Pushes the scopes of type variables
 enterCHMHead :: TState ()
 enterCHMHead = do
   state@TransformMonad
@@ -959,6 +972,7 @@ registerMethodInstance cId mId mType = do
 runTState :: TState a -> (a,TransformMonad)
 runTState a = runState a initTransformMonad
 
+-- | Returns the name of the given C construct
 class GetCName a where
   getCName :: a -> Id
 
@@ -988,6 +1002,7 @@ class GetCName a => GetSU a where
   getSUType :: a -> CStructTag
   getSUName = getCName
 
+-- | Retrieves the encapsulated CStructUnion object
 instance GetSU CExtDecl where
   getSUType (CHMSDefExt chmStructDef) = getSUType chmStructDef
 
