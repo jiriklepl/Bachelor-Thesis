@@ -8,8 +8,8 @@ import CHM.Instantiate
 
 main = do
   ast <- parseMyFile "test.chm"
-  transformAST ast
-  typeAST ast
+  -- transformAST ast
+  -- typeAST ast
   itsAKindOfMagic ast
 
 parseMyFile :: FilePath -> IO CTranslUnit

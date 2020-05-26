@@ -2236,7 +2236,6 @@ chm_param_type
 
 chm_simple_type :: { CHMT }
   : type_specifier {% withNodeInfo $1 $ CHMCType $1 }
-  | identifier_declarator {% withNodeInfo $1 $ CHMCDeclType $ reverseDeclr $1 }
 
 {
 

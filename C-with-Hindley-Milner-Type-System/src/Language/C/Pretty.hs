@@ -622,9 +622,6 @@ instance Pretty CHMT where
     pretty (CHMCType specs _) =
         hsep $ pretty <$> specs
 
-    pretty (CHMCDeclType decl _) =
-        pretty decl
-
     pretty (CHMParType decl params _) =
         pretty decl <+>
         char ':' <+>

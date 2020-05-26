@@ -113,6 +113,7 @@ import Language.C.Data
 import Language.C.Syntax
 import Language.C.Data.Ident (Ident(..))
 
+-- | Abstraction of a local variable Scope
 data Scope = Scope
   { scopeName :: Id
   , scopeId :: Int
@@ -120,6 +121,7 @@ data Scope = Scope
   }
 type ReturnExpr = Expr
 
+-- | Initialize a new `Scope`
 initScope :: Id -> Int -> Scope
 initScope name id = Scope
   { scopeName = name
@@ -127,11 +129,13 @@ initScope name id = Scope
   , scopeVars = Set.empty
   }
 
+-- | Remembers the method's `Scheme` and a set of `Type`s of its instances
 data Method = Method
   { methodScheme :: Scheme
   , methodInstances :: Set.Set Type
   }
 
+-- | Initializes a new `Method`
 initMethod :: Scheme -> Method
 initMethod s = Method
   { methodScheme = s
@@ -148,9 +152,11 @@ data UserClass = UserClass
 
 type MethodNamed = (Id, Method)
 
+-- | Returns a list of `Method`s of the given `UserClass`
 getClassMethods :: UserClass -> [(Id, Method)]
 getClassMethods = Map.toList . methods
 
+-- | Initializes a new `UserClass`
 initUserClass :: UserClass
 initUserClass = UserClass
   { methods = Map.empty
@@ -163,7 +169,7 @@ data TransformMonad = TransformMonad
     -- ^ to avoid name collisions
   , switchScopes :: [Int]
     {- ^
-      remembers the number of the scope of a switch statement
+      Remembers the number of the scope of a switch statement
       to connect it to its cases (we can have while in a switch etc.)
       recursively
     -}
@@ -196,10 +202,7 @@ data TransformMonad = TransformMonad
 
 type TState = State TransformMonad
 
-tPointer :: Type
-tConst :: Type
-tError :: Type
-tTuple3  :: Type
+tPointer, tConst, tError, tTuple3 :: Type
 
 tPointer = TCon (Tycon "@Pointer" (Kfun Star Star))
 tConst = TCon (Tycon "@Const" (Kfun Star Star))
@@ -220,6 +223,7 @@ pointer = TAp tPointer
 trio = (TAp .) . TAp . TAp tTuple3
 fst3 (a, _, _) = a
 
+-- | Assigns the `Id` of a function which represents the given operator
 class OperatorFunction a where
   operatorFunction :: a -> Id
 
@@ -271,57 +275,20 @@ instance OperatorFunction CUnaryOp where
     CCompOp -> complOpFunc
     CNegOp -> negOpFunc
 
-mulOpFunc     :: Id
-divOpFunc     :: Id
-modOpFunc     :: Id
-addOpFunc     :: Id
-subOpFunc     :: Id
-shlOpFunc     :: Id
-shrOpFunc     :: Id
-xorOpFunc     :: Id
-orOpFunc      :: Id
-andOpFunc     :: Id
-logAndOpFunc  :: Id
-logOrOpFunc   :: Id
-
-eqOpFunc      :: Id
-neqOpFunc     :: Id
-ltOpFunc      :: Id
-gtOpFunc      :: Id
-leOpFunc      :: Id
-geOpFunc      :: Id
-
-assOpFunc     :: Id
-mulAssOpFunc  :: Id
-divAssOpFunc  :: Id
-modAssOpFunc  :: Id
-addAssOpFunc  :: Id
-subAssOpFunc  :: Id
-shlAssOpFunc  :: Id
-shrAssOpFunc  :: Id
-andAssOpFunc  :: Id
-xorAssOpFunc  :: Id
-orAssOpFunc   :: Id
-
-preIncOpFunc  :: Id
-postIncOpFunc :: Id
-preDecOpFunc  :: Id
-postDecOpFunc :: Id
-plusOpFunc    :: Id
-minusOpFunc   :: Id
-complOpFunc   :: Id
-negOpFunc     :: Id
-
--- takes two things and returns the second
-commaOpFunc   :: Id
-ternaryOpFunc :: Id
-elvisOpFunc   :: Id
-indexOpFunc   :: Id
-refFunc       :: Id
-derefFunc     :: Id
-
-returnFunc    :: Id
-caseFunc      :: Id
+{- |
+  These functions represent various operators and other
+  language features that act like operators (e.g. `CReturn`)
+-}
+mulOpFunc, divOpFunc, modOpFunc, addOpFunc, subOpFunc,
+  shlOpFunc, shrOpFunc, xorOpFunc, orOpFunc, andOpFunc,
+  logAndOpFunc, logOrOpFunc, eqOpFunc, neqOpFunc, ltOpFunc,
+  gtOpFunc, leOpFunc, geOpFunc, assOpFunc, mulAssOpFunc,
+  divAssOpFunc, modAssOpFunc, addAssOpFunc, subAssOpFunc,
+  shlAssOpFunc, shrAssOpFunc, andAssOpFunc, xorAssOpFunc,
+  orAssOpFunc, preIncOpFunc, postIncOpFunc, preDecOpFunc,
+  postDecOpFunc, plusOpFunc, minusOpFunc, complOpFunc,
+  negOpFunc, commaOpFunc, ternaryOpFunc, elvisOpFunc,
+  indexOpFunc, refFunc, derefFunc, returnFunc, caseFunc :: Id
 
 {-
   Operators follow a naming convention where there is

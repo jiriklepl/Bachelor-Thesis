@@ -28,8 +28,9 @@ import qualified Data.Set as Set
 import TypingHaskellInHaskell
 
 import Language.C.Data
-import Language.C.Syntax
+import Language.C.Data.Error (mkErrorInfo)
 import Language.C.Data.Ident (Ident(..))
+import Language.C.Syntax
 
 import CHM.TransformMonad
 
@@ -714,6 +715,8 @@ instance Transform CHMStructDef where
     leaveCHMHead
     return []
 
+
+
 {- |
   Registers a new class and declares its content,
   adds an entry for each declaration to the transform monad
@@ -726,15 +729,19 @@ declareClassContents id cExtDecls = do
   let
     classDeclare (CDeclExt cDecl) = do
       let
-        translateDeclaration ([(name, Forall [] ([] :=> t), [])], []) = do
+        onlyPureDeclarationError =
+          mkErrorInfo LevelError "only pure declarations allowed here" $ nodeInfo cDecl
+        translateDeclaration ([(name, Forall [] ([] :=> t), [([], Const (name2 :>: _))])], []) = do
+          unless (name == name2) . error . show $ onlyPureDeclarationError
           scheme <- chmScheme t
           registerClassDeclaration id (name :>: scheme)
           return (name, scheme, [])
-        translateDeclaration _ = return $ error "only pure declarations allowed here"
+        translateDeclaration as = error . show $ onlyPureDeclarationError
       transform cDecl >>= traverse translateDeclaration
-    classDeclare _ = return $ error "only declarations allowed in class declarations"
+    classDeclare c = error . show .
+      mkErrorInfo LevelError "only pure declarations allowed here" $ nodeInfo c
   if registered then concat <$> traverse classDeclare cExtDecls
-  else return $ error "class already defined"
+  else error $ "Classed " ++ id ++ " redefined"
 
 instance Transform CHMCDef where
   transform (CHMCDef (Ident cId _ _) chmHead cExtDecls _) = do

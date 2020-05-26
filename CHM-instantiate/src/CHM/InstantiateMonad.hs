@@ -13,6 +13,7 @@ import Debug.Trace
 import Language.C.Syntax
 import Language.C.Data
 import Language.C.Data.Ident (Ident(..))
+import Language.C.Data.Error
 
 import TypingHaskellInHaskell hiding (modify)
 import CHM.Transform
@@ -337,13 +338,17 @@ instance ReplacePolyTypes CExpr where
   replacePolyTypes (CSizeofExpr cExpr a) =
     flip CSizeofExpr a <$> replacePolyTypes cExpr
   -- TODO: CSizeofType
-  replacePolyTypes (CAlignofExpr cExpr a) = do
+  replacePolyTypes (CAlignofExpr cExpr a) =
     flip CAlignofExpr a <$> replacePolyTypes cExpr
   -- TODO: CAlignofType
-  replacePolyTypes (CComplexReal cExpr a) = do
+  replacePolyTypes (CComplexReal cExpr a) =
     flip CComplexReal a <$> replacePolyTypes cExpr
-  replacePolyTypes (CComplexImag cExpr a) = do
+  replacePolyTypes (CComplexImag cExpr a) =
     flip CComplexImag a <$> replacePolyTypes cExpr
+  replacePolyTypes (CIndex aExpr iExpr a) = do
+    aExpr' <- replacePolyTypes aExpr
+    iExpr' <- replacePolyTypes iExpr
+    return $ CIndex aExpr' iExpr' a
   replacePolyTypes (CCall cExpr cExprs a) = do
     cExpr' <- replacePolyTypes cExpr
     cExprs' <- replacePolyTypes cExprs
@@ -562,8 +567,6 @@ instantiateTypeInner name t@(TAp t1 t2) nInfo = do
     case t' `Map.lookup` polyStructs state of
       Just pType ->
         instantiate (pTypeDefinition pType) (toScheme t)
-instantiateTypeInner name t nInfo =
-  trace ("Cannot instantiate type " ++ show t) $ return ()
 
 schemeToMono :: Scheme -> NodeInfo -> IState Id
 schemeToMono (Forall [] (cs :=> t)) nInfo =
@@ -618,8 +621,6 @@ instance ReplaceTVars CHMParams where
 instance ReplaceTVars CHMT where
   replaceTVars as (CHMCType cDeclSpecs a) =
     flip CHMCType a <$> replaceTVars as cDeclSpecs
-  replaceTVars as (CHMCDeclType cDeclr a) =
-    flip CHMCDeclType a <$> replaceTVars as cDeclr
   replaceTVars as (CHMParType chmType chmPars a) = do
     chmType' <- replaceTVars as chmType
     chmPars' <- replaceTVars as chmPars
@@ -780,10 +781,24 @@ instance ReplaceTVars b => ReplaceTVars [b] where
 instance ReplaceTVars b => ReplaceTVars (Maybe b) where
   replaceTVars as m = traverse (replaceTVars as) m
 
-renameFunDef :: Id -> CFunDef -> CFunDef
-renameFunDef name' (CFunDef a (CDeclr (Just (Ident sId _ pos)) b c d e) f g h) =
-  let new_ident = Ident name' (quad name') pos
-  in CFunDef a (CDeclr (Just new_ident) b c d e) f g h
+class RenameCDef a where
+  renameCDef :: Id -> a -> a
+
+instance RenameCDef CFunDef where
+  renameCDef name (CFunDef cDeclSpecs cDeclr cDecls cStmt a) =
+    CFunDef cDeclSpecs (renameCDef name cDeclr) cDecls cStmt a
+
+instance RenameCDef CStructUnion where
+  renameCDef name (CStruct cStructTag (Just cIdent) mDecls cAttrs a) =
+    CStruct cStructTag (Just . renameCDef name $ cIdent) mDecls cAttrs a
+
+instance RenameCDef CDeclr where
+  renameCDef name (CDeclr (Just cIdent) cDerivedDeclrs mStrLit cAttrs a) =
+    CDeclr (Just . renameCDef name $ cIdent) cDerivedDeclrs mStrLit cAttrs a
+
+instance RenameCDef Ident where
+  renameCDef name (Ident sId _ pos) =
+    Ident name (quad name) pos
 
 class GetFunDef a where
   getFunDef :: a -> CFunDef
@@ -797,7 +812,25 @@ instance GetFunDef CHMFunDef where
 
 rewrite :: CExtDecl -> Scheme -> IState CExtDecl  -- TODO
 rewrite cExtDecl@CFDefExt{} _ = return cExtDecl
-rewrite cExtDecl@CHMSDefExt{} _ = return cExtDecl  -- TODO: from here
+rewrite cExtDecl@(CHMSDefExt (CHMStructDef _ cStructUnion _)) scheme =
+  let
+    name = getCName cStructUnion
+    scheme' = mangle scheme
+    cStructUnion' = renameCDef ("__" ++ name ++ scheme') cStructUnion
+    nInfo = nodeInfo cStructUnion'
+  in return . CDeclExt $
+    CDecl
+      [CStorageSpec (CTypedef nInfo), CTypeSpec $ CSUType cStructUnion' nInfo]
+      [ ( Just $ CDeclr
+          (Just $ Ident (tail scheme') (quad scheme') nInfo)
+          []
+          Nothing
+          []
+          nInfo
+        , Nothing
+        , Nothing
+      ) ]
+      nInfo  -- TODO: from here
 rewrite
   cExtDecl@( CHMFDefExt
       ( CHMFunDef
@@ -812,7 +845,7 @@ rewrite
           _
       )
   )
-  scheme = return . CFDefExt $ renameFunDef ("__" ++ name ++ mangle scheme) funDef  -- TODO
+  scheme = return . CFDefExt $ renameCDef ("__" ++ name ++ mangle scheme) funDef  -- TODO
 rewrite cExtDecl scheme@(Forall [] (cs :=> t)) = do
   let name = getCName cExtDecl
   pType <- gets ((Map.! name) . polyTypes)
@@ -828,7 +861,7 @@ rewrite cExtDecl scheme@(Forall [] (cs :=> t)) = do
       ]
   case substs of
     [] -> error "cannot create the instance"
-    [iDef] -> return . CFDefExt $ renameFunDef ("__" ++ name ++ mangle scheme) (getFunDef iDef)
+    [iDef] -> return . CFDefExt $ renameCDef ("__" ++ name ++ mangle scheme) (getFunDef iDef)
     _ -> error "I don't know yet"  -- TODO
 
 parseReSchemedVirtual :: Scheme -> CExtDecl -> BindGroup -> IState [Assump]
@@ -864,7 +897,7 @@ parseReSchemedVirtual scheme cExtDecl bindGroup = do
               TVar . flip Tyvar Star <$> tVarNames -- TODO: doesn't have to be just Star
             sType =
               foldl TAp (TCon (Tycon name sKind)) tVars'
-            parExpls = zip3 tVarNames (toScheme <$> tVars') []
+            parExpls = zip3 tVarNames (toScheme <$> tVars') (repeat [])
           typeInfer pAs
             [ bindGroup
             , ( parExpls ++ [ ( mangle scheme
