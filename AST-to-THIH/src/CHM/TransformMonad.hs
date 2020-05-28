@@ -5,6 +5,7 @@ module CHM.TransformMonad
   , TransformMonad(..)
   , GetCName(..)
   , GetSU(..)
+  , TypeComplexity (..)
   , TState
   , initTransformMonad
   , getClassMethods
@@ -1045,3 +1046,16 @@ instance GetSU CHMStructDef where
 
 instance GetSU CStructUnion where
   getSUType (CStruct tag _ _ _ _) = tag
+
+
+class TypeComplexity a where
+  typeComplexity :: a -> Int
+
+instance TypeComplexity Type where
+  typeComplexity (TAp t1 t2) =
+    1 + max (typeComplexity t1) (typeComplexity t2)
+  typeComplexity _ = 1
+
+instance TypeComplexity Scheme where
+  typeComplexity (Forall [] ([] :=> t)) =
+    typeComplexity t

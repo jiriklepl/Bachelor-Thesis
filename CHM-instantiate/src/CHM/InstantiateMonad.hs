@@ -445,6 +445,11 @@ instance
 
 instantiate :: CExtDecl -> Scheme -> IState ()
 instantiate extFunDef scheme = do
+  when (typeComplexity scheme > 500) . error . show $
+    mkErrorInfo
+      LevelError
+      "Type too complex, detected possible instantiation of an infinite type"
+      (nodeInfo extFunDef)
   syncScopes
   pushPolyMaps
   extFunDef' <- replacePolyTypes extFunDef
@@ -480,7 +485,7 @@ instantiate extFunDef scheme = do
   let
     funName = getCName extFunDef'
     tVarMap = foldl Map.union Map.empty
-      [ if and (zipWith (==) name' funName)
+      [ if let (f, s) = span (/= ':') name' in f == funName && s /= []
           then drop (length funName + 1) name' `Map.singleton` scheme'
           else name' `Map.singleton` scheme'
       | (name' :>: scheme') <- as

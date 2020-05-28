@@ -6,6 +6,7 @@ module CHM.Transform
   , TransformMonad (..)
   , GetCName(..)
   , GetSU(..)
+  , TypeComplexity (..)
   , tPointer
   , runInfer
   , initTransformMonad
