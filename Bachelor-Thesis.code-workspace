@@ -1,7 +1,7 @@
 {
 	"folders": [
 		{
-			"path": "."
+			"path": "/mnt/z/programming/Bachelor-Thesis"
 		}
 	],
 	"settings": {
@@ -28,6 +28,7 @@
         },
         "todo-tree.regex.regex": "((//|--|#|<!--|;|/\\*|^)\\s*($TAGS)|^\\s*- \\[ \\])",
         "cSpell.words": [
+            "Aliasize",
             "Amper",
             "Assump",
             "Assumps",
@@ -41,6 +42,7 @@
             "Chakravarty",
             "Compat",
             "Cond",
+            "Constrs",
             "Coutts",
             "Declrs",
             "Desig",
@@ -105,6 +107,7 @@
             "doesn",
             "edecl",
             "edecls",
+            "eval",
             "expls",
             "exts",
             "fmap",
@@ -148,6 +151,7 @@
             "snoc",
             "strlit",
             "structs",
+            "substs",
             "subterms",
             "tname",
             "tokentype",
@@ -163,6 +167,7 @@
             "typespecs",
             "tyquals",
             "unreversed",
+            "variablize",
             "vcat",
             "viewr",
             "wouldn"

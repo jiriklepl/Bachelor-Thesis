@@ -1,13 +1,15 @@
 .PHONY: build clean run
 
 build:
-	cabal build all --haddock-internal
+	cabal new-build all --haddock-internal
 
 clean:
-	cabal clean
+	cabal new-clean
 
 run:
-	cabal run CHM-instantiate --haddock-internal
+	cabal new-run CHM-instantiate --haddock-internal
 
 compile:
-	cabal run -v0 CHM-instantiate --haddock-internal | gcc -o main -xc -
+	cabal new-run -v0 CHM-instantiate --haddock-internal > .precompiled.c
+	gcc -S -O0 -o .assembly.S .precompiled.c
+	gcc -c -o .main .assembly.S

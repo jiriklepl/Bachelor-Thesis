@@ -29,6 +29,7 @@ module TypingHaskellInHaskell where
 import Data.List(nub, (\\), intersect, union, partition)
 import Control.Monad
 import qualified Control.Monad.Fail as Fail
+
 import Control.Applicative(Applicative(..))
 
 -----------------------------------------------------------------------------
@@ -152,7 +153,7 @@ infixr 4 @@
 (@@)       :: Subst -> Subst -> Subst
 s1 @@ s2    = [ (u, apply s1 t) | (u,t) <- s2 ] ++ s1
 
-merge      :: MonadFail m => Subst -> Subst -> m Subst
+merge      :: Fail.MonadFail m => Subst -> Subst -> m Subst
 merge s1 s2 = if agree then return (s1++s2) else fail "merge fails"
  where agree = all (\v -> apply s1 (TVar v) == apply s2 (TVar v))
                    (map fst s1 `intersect` map fst s2)
@@ -161,8 +162,8 @@ merge s1 s2 = if agree then return (s1++s2) else fail "merge fails"
 -- Unify:	Unification
 -----------------------------------------------------------------------------
 
-mgu     :: MonadFail m => Type -> Type -> m Subst
-varBind :: MonadFail m => Tyvar -> Type -> m Subst
+mgu     :: Fail.MonadFail m => Type -> Type -> m Subst
+varBind :: Fail.MonadFail m => Tyvar -> Type -> m Subst
 
 mgu (TAp l r) (TAp l' r') = do s1 <- mgu l l'
                                s2 <- mgu (apply s1 r) (apply s1 r')
@@ -178,7 +179,7 @@ varBind u t | t == TVar u      = return nullSubst
             | kind u /= kind t = fail $ "kinds of `" ++ show u ++ "` and `" ++ show t ++ "` do not match"
             | otherwise        = return (u +-> t)
 
-match :: MonadFail m => Type -> Type -> m Subst
+match :: Fail.MonadFail m => Type -> Type -> m Subst
 
 match (TAp l r) (TAp l' r') = do sl <- match l l'
                                  sr <- match r r'
@@ -322,11 +323,11 @@ inHnf (IsIn c t) = hnf t
        hnf (TCon tc) = False
        hnf (TAp t _) = hnf t
 
-toHnfs      :: MonadFail m => ClassEnv -> [Pred] -> m [Pred]
+toHnfs      :: Fail.MonadFail m => ClassEnv -> [Pred] -> m [Pred]
 toHnfs ce ps = do pss <- mapM (toHnf ce) ps
                   return (concat pss)
 
-toHnf                 :: MonadFail m => ClassEnv -> Pred -> m [Pred]
+toHnf                 :: Fail.MonadFail m => ClassEnv -> Pred -> m [Pred]
 toHnf ce p | inHnf p   = return [p]
            | otherwise = case byInst ce p of
                            Nothing -> fail "context reduction"
@@ -338,7 +339,7 @@ simplify ce = loop []
        loop rs (p:ps) | entail ce (rs++ps) p = loop rs ps
                       | otherwise            = loop (p:rs) ps
 
-reduce      :: MonadFail m => ClassEnv -> [Pred] -> m [Pred]
+reduce      :: Fail.MonadFail m => ClassEnv -> [Pred] -> m [Pred]
 reduce ce ps = do qs <- toHnfs ce ps
                   return (simplify ce qs)
 
@@ -378,7 +379,7 @@ instance Types Assump where
 instance Ord Assump where
   compare (id1 :>: _) (id2 :>: _) = compare id1 id2
 
-find                 :: MonadFail m => Id -> [Assump] -> m Scheme
+find                 :: Fail.MonadFail m => Id -> [Assump] -> m Scheme
 find i []             = fail ("unbound identifier: " ++ i)
 find i ((i':>:sc):as) = if i==i' then return sc else find i as
 
@@ -388,7 +389,7 @@ find i ((i':>:sc):as) = if i==i' then return sc else find i as
 
 newtype TI a = TI (Subst -> Int -> (Subst, Int, a))
 
-instance MonadFail TI where
+instance Fail.MonadFail TI where
   fail string = error string
 
 instance Monad TI where
@@ -564,7 +565,7 @@ tiAlts ce as alts t = do psts <- mapM (tiAlt ce as) alts
 
 -----------------------------------------------------------------------------
 
-split :: MonadFail m => ClassEnv -> [Tyvar] -> [Tyvar] -> [Pred]
+split :: Fail.MonadFail m => ClassEnv -> [Tyvar] -> [Tyvar] -> [Pred]
                       -> m ([Pred], [Pred])
 split ce fs gs ps = do ps' <- reduce ce ps
                        let (ds, rs) = partition (all (`elem` fs) . tv) ps'
@@ -593,7 +594,7 @@ candidates ce (v, qs) = [ t' | let is = [ i | IsIn i t <- qs ]
                                t' <- defaults ce,
                                all (entail ce []) [ IsIn i t' | i <- is ] ]
 
-withDefaults :: MonadFail m => ([Ambiguity] -> [Type] -> a)
+withDefaults :: Fail.MonadFail m => ([Ambiguity] -> [Type] -> a)
                   -> ClassEnv -> [Tyvar] -> [Pred] -> m a
 withDefaults f ce vs ps
     | any null tss  = fail "cannot resolve ambiguity"
@@ -601,10 +602,10 @@ withDefaults f ce vs ps
       where vps = ambiguities ce vs ps
             tss = map (candidates ce) vps
 
-defaultedPreds :: MonadFail m => ClassEnv -> [Tyvar] -> [Pred] -> m [Pred]
+defaultedPreds :: Fail.MonadFail m => ClassEnv -> [Tyvar] -> [Pred] -> m [Pred]
 defaultedPreds  = withDefaults (const . concatMap snd)
 
-defaultSubst   :: MonadFail m => ClassEnv -> [Tyvar] -> [Pred] -> m Subst
+defaultSubst   :: Fail.MonadFail m => ClassEnv -> [Tyvar] -> [Pred] -> m Subst
 defaultSubst    = withDefaults (zip . map fst)
 
 -----------------------------------------------------------------------------

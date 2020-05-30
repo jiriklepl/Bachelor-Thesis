@@ -395,7 +395,7 @@ instance ReplacePolyTypes CExpr where
         pMs <- gets polyMaps
         let pM : pMt = pMs
         modify (\state -> state{polyMaps = Map.insert vId' vId pM : pMt})
-        return $ CVar (Ident vId' (quad vId') pos) a
+        return $ CVar (makeIdent vId' pos) a
       else return cVar
   replacePolyTypes cConst@(CConst _) =
     return cConst
@@ -537,6 +537,20 @@ instance ReplaceTVars CDeclSpec where
     CAlignSpec <$> replaceTVars as cAlignSpec
   replaceTVars _ a = return a
 
+class IsDetType a where
+  isDetType :: a -> Bool
+
+instance IsDetType Type where
+  isDetType (TVar _) = False
+  isDetType (TCon _) = True
+  isDetType (TAp a b) =
+    isDetType a && isDetType b
+  isDetType (TGen _) = False
+
+instance IsDetType Scheme where
+  isDetType (Forall tVs (_ :=> t)) =
+    null tVs && isDetType t
+
 typeToMono :: Type -> NodeInfo -> IState Id
 typeToMono t@(TCon (Tycon tId _)) _ =
   case tId `Map.lookup` builtinTypes of
@@ -550,9 +564,13 @@ typeToMono t nInfo = do
     (instantiateType t' t nInfo)
   return t'
 
+makeIdent :: Id -> NodeInfo -> Ident
+makeIdent name nInfo =
+  Ident name (quad name) nInfo
+
 createEmptyDeclr :: Id -> NodeInfo -> CDeclr
 createEmptyDeclr name nInfo =
-  CDeclr (Just (Ident name (quad name) nInfo)) [] Nothing [] nInfo
+  CDeclr (Just $ makeIdent name nInfo) [] Nothing [] nInfo
 
 addDerivedDeclr :: CDerivedDeclr -> CDeclr -> CDeclr
 addDerivedDeclr cDerivedDeclr (CDeclr a cDerivedDeclrs c d e) =
@@ -560,7 +578,7 @@ addDerivedDeclr cDerivedDeclr (CDeclr a cDerivedDeclrs c d e) =
 
 typedefSpec :: Id -> NodeInfo -> CDeclSpec
 typedefSpec name nInfo =
-  CTypeSpec (CTypeDef (Ident name (quad name) nInfo) nInfo)
+  CTypeSpec (CTypeDef (makeIdent name nInfo) nInfo)
 
 typeDecl :: Id -> NodeInfo -> CDecl
 typeDecl name nInfo =
@@ -612,7 +630,12 @@ instantiateTypeInner name t@(TAp t1 t2) nInfo =
         instantiate (pTypeDefinition pType) (toScheme t)
 
 schemeToMono :: Scheme -> NodeInfo -> IState Id
-schemeToMono (Forall [] (cs :=> t)) = typeToMono t
+schemeToMono scheme@(Forall tVs (cs :=> t)) nInfo = do
+  unless (isDetType scheme) . error . show $ mkErrorInfo
+    LevelError
+    "Cannot determine monotype"
+    nInfo
+  typeToMono t nInfo
 
 
 instance ReplaceTVars CTypeSpec where
@@ -620,7 +643,7 @@ instance ReplaceTVars CTypeSpec where
     case sId `Map.lookup` as of
       (Just scheme) -> do
         monoType <- schemeToMono scheme b
-        return $ CTypeDef (Ident monoType (quad monoType) b) c
+        return $ CTypeDef (makeIdent monoType b) c
       Nothing -> return cTypeDef
   replaceTVars as (CTypeOfExpr cExpr a) =
     flip CTypeOfExpr a <$> replaceTVars as cExpr
@@ -807,7 +830,7 @@ instance ReplaceTVars CExpr where
       Just scheme -> do
         polyMap <- gets (head . polyMaps)
         let name = "__" ++ (polyMap Map.! sId) ++ mangle scheme
-        return $ CVar (Ident name (quad name) pos) a
+        return $ CVar (makeIdent name pos) a
       Nothing -> return cVar
   replaceTVars as cConst@CConst{} = return cConst
   replaceTVars as (CCompoundLit cDeclr cInitList a) = do
@@ -848,7 +871,7 @@ instance RenameCDef CDeclr where
 
 instance RenameCDef Ident where
   renameCDef name (Ident sId _ pos) =
-    Ident name (quad name) pos
+    makeIdent name pos
 
 class GetFunDef a where
   getFunDef :: a -> CFunDef
@@ -860,26 +883,44 @@ instance GetFunDef CExtDecl where
 instance GetFunDef CHMFunDef where
   getFunDef (CHMFunDef _ cFunDef _) = cFunDef
 
+instantiateSUType :: CStructUnion -> Scheme -> IState ()
+instantiateSUType (CStruct cStructTag (Just name) _ _ nInfo) scheme = do
+  let
+    scheme' = mangle scheme
+    name' = tail scheme'
+  modify (\state ->
+    state{cProgram =
+      CDeclExt
+        ( CDecl
+            [ CStorageSpec (CTypedef nInfo)
+            , CTypeSpec $ CSUType
+                ( CStruct
+                    cStructTag
+                    (Just $ makeIdent name' nInfo)
+                    Nothing
+                    []
+                    nInfo)
+                nInfo]
+            [ ( Just $ createEmptyDeclr name' nInfo
+              , Nothing
+              , Nothing
+            ) ]
+            nInfo
+        )
+      : cProgram state})
+
 rewrite :: CExtDecl -> Scheme -> IState CExtDecl
 rewrite cExtDecl@CFDefExt{} _ = return cExtDecl
-rewrite cExtDecl@(CHMSDefExt (CHMStructDef _ cStructUnion _)) scheme =
+rewrite cExtDecl@(CHMSDefExt (CHMStructDef _ cStructUnion _)) scheme = do
   let
     name = getCName cStructUnion
-    scheme' = mangle scheme
-    cStructUnion' = renameCDef ("__" ++ name ++ scheme') cStructUnion
+    scheme' = tail $ mangle scheme
+    cStructUnion' = renameCDef (scheme') cStructUnion
     nInfo = nodeInfo cStructUnion'
-  in return . CDeclExt $
-    CDecl
-      [CStorageSpec (CTypedef nInfo), CTypeSpec $ CSUType cStructUnion' nInfo]
-      [ ( Just $ CDeclr
-          (Just $ Ident (tail scheme') (quad scheme') nInfo)
-          []
-          Nothing
-          []
-          nInfo
-        , Nothing
-        , Nothing
-      ) ]
+  instantiateSUType cStructUnion scheme
+  return . CDeclExt $ CDecl
+      [CTypeSpec $ CSUType cStructUnion' nInfo]
+      []
       nInfo
 rewrite cExtDecl@(CHMFDefExt (CHMFunDef chmHead cFunDef _)) scheme =
   let name = getCName cFunDef
@@ -923,7 +964,7 @@ parseReSchemedVirtual scheme cExtDecl bindGroup = do
               )
             ]
         CDeclExt{} -> transform cExtDecl >>= typeInfer pAs . (bindGroup:)
-        CHMSDefExt (CHMStructDef (CHMHead tVars _ _) cStructUnion _) -> do
+        CHMSDefExt (CHMStructDef chmHead@(CHMHead tVars chmConstrs _) cStructUnion _) -> do
           let
             name = getCName cExtDecl
             sKind = takeNKind $ length tVars
@@ -931,14 +972,28 @@ parseReSchemedVirtual scheme cExtDecl bindGroup = do
               [ name ++ ':' : tVar
               | (Ident tVar _ _) <- tVars
               ]
+            enScopeType set (TAp t1 t2) =
+              enScopeType set t1 `TAp` enScopeType set t2
+            enScopeType set t@(TVar (Tyvar id kind)) =
+              if id `Set.member` set
+                then TVar (Tyvar (name ++ ':' : id) kind)
+                else t
+            enScopeType _ t = t
             tVars' =
               TVar . flip Tyvar Star <$> tVarNames -- TODO: doesn't have to be just Star
             sType =
               foldl TAp (TCon (Tycon name sKind)) tVars'
             parExpls = zip3 tVarNames (toScheme <$> tVars') (repeat [])
+          enterCHMHead
+          _ <- transform chmHead
+          aliases <-
+            ((\(i :>: Forall [] ([] :=> t)) ->
+              (name ++ ':' : i, toScheme $ enScopeType (Set.fromList $ (\(Ident id _ _) -> id)<$> tVars) t, [])) <$>) <$> getAliases chmConstrs
+          let
+          leaveCHMHead
           typeInfer pAs
             [ bindGroup
-            , ( parExpls ++ [ ( mangle scheme
+            , ( parExpls ++ aliases ++ [ ( mangle scheme
                   , scheme
                   , [([], Const (name :>: toScheme sType))]
                   )
@@ -985,7 +1040,6 @@ mangleType :: Type -> Id
 mangleType (TCon (Tycon id _)) = case id `Map.lookup` builtinTypes of
   Nothing -> "TC" ++ show (length id) ++ id
   Just cName -> cName
-
 mangleType (TAp (TAp (TCon (Tycon "(->)" _)) t1) t2) =
   let
     t1' = manglePars t1

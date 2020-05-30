@@ -1,21 +1,11 @@
 // CHM test source code
-
-void* malloc(int);
-void free(void*);
-
-class class_name <a : Num<a> /* super class */> {
-	a* classed_func();
-}
-
+//
 <a>
-a* fromVoidStar(void *v) {
-	// return (a*)v;
-}
-
+a* newArray(int x)
+{}
 <a>
-void* toVoidStar(a *v) {
-	// return (void*)v;
-}
+void deleteArray(a*x)
+{}
 
 <a>
 struct vector {
@@ -27,9 +17,20 @@ struct vector {
 b alloc_vector(int size)
 {
 	b v;
-	v.data = fromVoidStar(malloc(size));
+	v.data = newArray(size);
 	v.size = 0;
 	v.capacity = size;
+	return v;
+}
+
+<a : b ~ struct vector : <a> >
+b singleton(a value)
+{
+	b v;
+	v.data = newArray(1);
+	v.data[0] = value;
+	v.size = 1;
+	v.capacity = 1;
 	return v;
 }
 
@@ -43,15 +44,83 @@ void push_back(b *v, a thing)
 		a *old = v->data;
 		*v = alloc_vector(v->capacity * 2);
 		// copy content
+		deleteArray(old);
 	}
 }
 
-< : vector_int ~ struct vector : <int> >
-int main() {
+<vector_char, vector_int, vector_float>
+int f() {
 	vector_int v = alloc_vector(5);
 	push_back(&v, 0);
 	push_back(&v, 1);
 	push_back(&v, 2);
 	push_back(&v, 3);
 	push_back(&v, 4);
+
+	vector_char w = alloc_vector(5);
+	push_back(&w, '0');
+	push_back(&w, '1');
+	push_back(&w, '2');
+	push_back(&w, '3');
+	push_back(&w, '4');
+
+	vector_float x = alloc_vector(5);
+	push_back(&x, 0.0);
+	push_back(&x, 1.0);
+	push_back(&x, 2.0);
+	push_back(&x, 3.0);
+	push_back(&x, 4.0);
 }
+
+int main()
+{
+	char c;
+	f();
+}
+
+/*/
+
+<a, b>
+struct test_struct
+{
+	a value_a;
+	b value_b;
+};
+
+<a, b : c ~ struct test_struct : <a, b> >
+void f(a value_a, b value_b)
+{
+	c x;
+}
+
+int main()
+{
+	char c;
+	for (int i = 0; i < 10; i++)
+		f(i, c);
+}
+
+//
+
+<a : b ~ struct List : <a> >
+struct List
+{
+	a value;
+	b *next;
+};
+
+<a  : b ~ struct List : <a> >
+int f()
+{
+	int i;
+	b list;
+	list.value = i;
+}
+
+int main()
+{
+	int i;
+	f();
+}
+
+/**/

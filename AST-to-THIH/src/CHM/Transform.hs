@@ -13,6 +13,11 @@ module CHM.Transform
   , createParamsType
   , transformCHMType
   , getTransformResult
+  , enterCHMHead
+  , leaveCHMHead
+  , enterFunction
+  , leaveFunction
+  , getAliases
   , chmScheme
   , takeNKind
   , typeInfer
@@ -578,15 +583,20 @@ instance TransformCHMFunDef CExtDecl where
 
 class GetAliases a where
   getAliases :: a -> TState [Assump]
+  getAliasNames :: a -> [Id]
 
 instance GetAliases CHMConstr where
   getAliases (CHMUnifyConstr (Ident name _ _) chmType _) = do
     chmType' <- transformCHMType chmType
     return [name :>: toScheme chmType']
   getAliases _ = return []
+  getAliasNames (CHMUnifyConstr (Ident name _ _) chmType _) =
+    [name]
+  getAliasNames _ = []
 
 instance GetAliases a => GetAliases [a] where
   getAliases as = concat <$> traverse getAliases as
+  getAliasNames as = concat <$> traverse getAliasNames as
 
 instance TransformCHMFunDef CHMFunDef where
   transformCHMFunDef (CHMFunDef chmHead@(CHMHead tVars chmConstrs _) funDef _) = do
