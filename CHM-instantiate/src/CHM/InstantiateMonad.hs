@@ -20,15 +20,22 @@ import CHM.Transform
 
 type IState = State InstantiateMonad
 
+-- | Remembers the main definition (or definitions if is classed) and list of instances
 data PolyType = PolyType
   { pTypeDefinition :: CExtDecl
+    -- ^ The C definition of the PolyType
   , pTypeDefinitions :: Map.Map Type CExtDecl
+    -- ^ Multiple definitions in case there are instanced definitions
   , pTypeClass :: Maybe Id
+    -- ^ If it is a method, it remembers 'Just' the class, otherwise 'Nothing'
   , pTypeScheme :: Scheme
+    -- ^ Scheme of the template
   , pTypeInstances  :: Set.Set Id
+    -- ^ Set of all instances
   }
   deriving (Show)
 
+-- | Creates the PolyType just with the scheme and the C definition
 initPolyType :: Scheme -> CExtDecl -> PolyType
 initPolyType scheme def = PolyType
   { pTypeDefinition = def

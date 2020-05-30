@@ -10,7 +10,7 @@ license-file:        LICENSE
 author:              Jiří Klepl
 maintainer:          jiriklepl@seznam.cz
 -- copyright:
-category:            Testing
+-- category
 build-type:          Simple
 extra-source-files:  ChangeLog.md
 cabal-version:       >=1.10
