@@ -425,6 +425,7 @@ data CDeclarationSpecifier a
   | CTypeQual    (CTypeQualifier a)    -- ^ type qualifier
   | CFunSpec     (CFunctionSpecifier a) -- ^ function specifier
   | CAlignSpec   (CAlignmentSpecifier a) -- ^ alignment specifier
+  | CHMAnonType  a -- CHM addition
     deriving (Show, Data,Typeable, Generic, Generic1 {-! ,CNode ,Functor, Annotated !-})
 
 instance NFData a => NFData (CDeclarationSpecifier a)
@@ -1131,6 +1132,7 @@ instance CNode t1 => CNode (CDeclarationSpecifier t1) where
         nodeInfo (CTypeQual d) = nodeInfo d
         nodeInfo (CFunSpec d) = nodeInfo d
         nodeInfo (CAlignSpec d) = nodeInfo d
+        nodeInfo (CHMAnonType d) = nodeInfo d
 instance CNode t1 => Pos (CDeclarationSpecifier t1) where
         posOf x = posOf (nodeInfo x)
 
@@ -1140,6 +1142,7 @@ instance Functor CDeclarationSpecifier where
         fmap _f (CTypeQual a1) = CTypeQual (fmap _f a1)
         fmap _f (CFunSpec a1) = CFunSpec (fmap _f a1)
         fmap _f (CAlignSpec a1) = CAlignSpec (fmap _f a1)
+        fmap _f (CHMAnonType a1) = CHMAnonType (_f a1)
 
 instance Annotated CDeclarationSpecifier where
         annotation (CStorageSpec n) = annotation n
@@ -1147,11 +1150,13 @@ instance Annotated CDeclarationSpecifier where
         annotation (CTypeQual n) = annotation n
         annotation (CFunSpec n) = annotation n
         annotation (CAlignSpec n) = annotation n
+        annotation (CHMAnonType n) = n
         amap f (CStorageSpec n) = CStorageSpec (amap f n)
         amap f (CTypeSpec n) = CTypeSpec (amap f n)
         amap f (CTypeQual n) = CTypeQual (amap f n)
         amap f (CFunSpec n) = CFunSpec (amap f n)
         amap f (CAlignSpec n) = CAlignSpec (amap f n)
+        amap f (CHMAnonType n) = CHMAnonType (f n)
 
 instance CNode t1 => CNode (CStorageSpecifier t1) where
         nodeInfo (CAuto d) = nodeInfo d

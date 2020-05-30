@@ -8,7 +8,7 @@
 				"label": "CHM Tokens"
 			},
 			{
-				"line": 2166,
+				"line": 2168,
 				"column": 6,
 				"label": "CHM Rules"
 			}
@@ -48,12 +48,12 @@
 				"label": "CDeclr"
 			},
 			{
-				"line": 820,
+				"line": 821,
 				"column": 8,
 				"label": "CHM AST"
 			},
 			{
-				"line": 1559,
+				"line": 1564,
 				"column": 4,
 				"label": "CHM instances"
 			}
@@ -66,6 +66,16 @@
 				"line": 425,
 				"column": 16,
 				"label": "CHM Token  Lex"
+			}
+		]
+	},
+	{
+		"path": "$ROOTPATH$/C-with-Hindley-Milner-Type-System/src/Language/C/Parser/Tokens.hs",
+		"bookmarks": [
+			{
+				"line": 147,
+				"column": 5,
+				"label": ""
 			}
 		]
 	}

@@ -237,6 +237,7 @@ translateDeclSpecs (decl:decls) = case decl of
   CFunSpec _ -> translateDeclSpecs decls
   CStorageSpec _ -> translateDeclSpecs decls
   CAlignSpec _ -> translateDeclSpecs decls
+  CHMAnonType _ -> TVar . (flip Tyvar Star) <$> appendNextAnon "@Anon"
 
 translateDerivedDecl :: Type -> [CDerivedDeclr] -> TState Type
 translateDerivedDecl t [] = return t
