@@ -274,6 +274,11 @@ translateDerivedDecl t (dDecl:dDecls) = do
     -- new-style functions (variadic)
     CFunDeclr (Right (decls, True)) _ _ -> return tError  -- TODO
 
+translateDecl :: CDecl -> TState Type
+translateDecl (CDecl declSpecs [] _) = translateDeclSpecs declSpecs
+translateDecl (CDecl declSpecs [(Just (CDeclr _ cDerivedDeclrs _ _ _), Nothing, Nothing)] _) =
+  translateDeclSpecs declSpecs >>= flip translateDerivedDecl cDerivedDeclrs
+
 extractParameters :: [CDecl] -> TState Program
 extractParameters (decl:decls) = case decl of
     CDecl declSpecs [] _ ->
@@ -391,7 +396,14 @@ transformExpr cExpr = let
     lExpr' <- transformExpr lExpr
     rExpr' <- transformExpr rExpr
     return $ Var (operatorFunction op) `Ap` lExpr' `Ap` rExpr'
-  -- TODO: CCast
+  CCast cDecl tExpr _ -> do
+    cDecl' <- translateDecl cDecl
+    tExpr' <- transformExpr tExpr
+    anonName <- appendNextAnon "@Cast"
+    return $ ap2
+      (Var castFunc)
+      (Const (anonName :>: toScheme cDecl'))
+      tExpr'
   CUnary op expr _ -> do
     expr' <- transformExpr expr
     return $ Ap
@@ -477,7 +489,8 @@ instance Transform CDecl where  -- TODO
         name <- sgName sId
         type' <- translateDerivedDecl pureType derivedDecls
         rest' <- transform (CDecl specs rest a)
-        return $ ([(name, toScheme type', [([], Const (name :>: toScheme type'))])], []) : rest'
+        let scheme = toScheme type'
+        return $ ([(name, scheme, [([], Const (name :>: scheme))])], []) : rest'
       (Just (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _), Just (CInitExpr cExpr _), Nothing):rest -> do
         name <- sgName sId
         type' <- translateDerivedDecl pureType derivedDecls

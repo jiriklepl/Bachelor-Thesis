@@ -40,6 +40,7 @@ void push_back(b *v, a thing)
 		*v = alloc_vector(v->capacity * 2);
 		// copy content
 		deleteArray(old);
+		old = nullptr();
 	}
 }
 

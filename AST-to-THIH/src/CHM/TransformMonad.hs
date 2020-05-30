@@ -58,6 +58,7 @@ module CHM.TransformMonad
   , derefFunc
   , returnFunc
   , caseFunc
+  , castFunc
   , ref
   , deref
   , pointer
@@ -128,6 +129,14 @@ initScope :: Id -> Int -> Scope
 initScope name id = Scope
   { scopeName = name
   , scopeId = id
+  , scopeVars = Set.empty
+  }
+
+-- | Initialize a new 'Scope'
+initGlobalScope :: Scope
+initGlobalScope = Scope
+  { scopeName = "global"
+  , scopeId = 0
   , scopeVars = Set.empty
   }
 
@@ -208,12 +217,13 @@ data TransformMonad = TransformMonad
 type TState = State TransformMonad
 
 -- | Common type constants
-tPointer, tConst, tError, tTuple3 :: Type
+tPointer, tConst, tError, tTuple3, tNULL :: Type
 
 tPointer = TCon (Tycon "@Pointer" (Kfun Star Star))
 tConst = TCon (Tycon "@Const" (Kfun Star Star))
 tError = TCon (Tycon "@Error" Star)
 tTuple3 = TCon (Tycon "(,,)3" (Kfun Star (Kfun Star (Kfun Star Star))))
+tNULL = TCon (Tycon "@NULL" Star)
 
 -- pointer reference & dereference functions
 -- | thih representation of the unary & operator
@@ -293,7 +303,8 @@ mulOpFunc, divOpFunc, modOpFunc, addOpFunc, subOpFunc,
   orAssOpFunc, preIncOpFunc, postIncOpFunc, preDecOpFunc,
   postDecOpFunc, plusOpFunc, minusOpFunc, complOpFunc,
   negOpFunc, commaOpFunc, ternaryOpFunc, elvisOpFunc,
-  indexOpFunc, refFunc, derefFunc, returnFunc, caseFunc :: Id
+  indexOpFunc, refFunc, derefFunc, returnFunc, caseFunc,
+  castFunc, cNULL :: Id
 
 {-
   Operators follow a naming convention where there is
@@ -357,6 +368,9 @@ derefFunc     = "*1"
 returnFunc    = "@return"
 caseFunc      = "@case"
 
+castFunc      = "@cast"
+cNULL      = "NULL"
+
 -- | Initializes the transform monad's state
 initTransformMonad :: TransformMonad
 initTransformMonad =
@@ -368,16 +382,16 @@ initTransformMonad =
   in TransformMonad
     { tuples = Set.empty
     , createdClasses = Set.empty
-    , nested = [initScope "global" 0]
+    , nested = [initGlobalScope]
     , lastScope = 0
     , registeredStructs = Map.empty
     , switchScopes = []
     , functionScopes = []
     , anonymousCounter = 0
     , userClasses = Map.empty
-    , typeVariables = []
-    , typeAliases = []
-    , variableClasses = []
+    , typeVariables = [[]]
+    , typeAliases = [Map.empty]
+    , variableClasses = [[]]
     , memberClasses =
       -- all built-in classes (work in -- TODO)
       addClass "Num" []
@@ -444,7 +458,8 @@ initTransformMonad =
         -- functions of the type '(a, b) -> Bool'
         t2abBFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (tupleTypes [aTVar, bTVar] `fn` tBool))
       in Set.fromList
-        [ addOpFunc :>: aaaFuncWithClasses [IsIn "Add" aTVar]
+        [ cNULL :>: toScheme (tPointer `TAp` tNULL)
+        , addOpFunc :>: aaaFuncWithClasses [IsIn "Add" aTVar]
         , subOpFunc :>: aaaFuncWithClasses [IsIn "Sub" aTVar]
         , mulOpFunc :>: aaaFuncWithClasses [IsIn "Mul" aTVar]
         , divOpFunc :>: aaaFuncWithClasses [IsIn "Div" aTVar]
@@ -482,6 +497,7 @@ initTransformMonad =
         , derefFunc :>: quantify [aVar] ([] :=> (pointer aTVar `fn` aTVar))
         , returnFunc :>: aaaFuncWithClasses []
         , caseFunc :>: quantify [aVar] ([] :=> (aTVar `fn` aTVar `fn` tBool))
+        , castFunc :>: abaFuncWithClasses []
         ]
     }
 
