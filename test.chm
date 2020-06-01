@@ -38,7 +38,7 @@ void push_back(b *v, a thing)
 	} else {
 		a *old = v->data;
 		*v = alloc_vector(v->capacity * 2);
-		// copy content
+		// fictional copying of the content
 		deleteArray(old);
 		old = nullptr();
 	}
