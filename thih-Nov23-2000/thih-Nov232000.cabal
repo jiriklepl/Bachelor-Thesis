@@ -19,7 +19,8 @@ extra-source-files:  CHANGELOG.md, Readme
 
 library
   default-language:  Haskell2010
-  build-depends:     base >= 4.12 && < 5
+  build-depends:     base >= 4.12 && < 5,
+                     containers >= 0.6 && < 1
   hs-source-dirs:    src
   exposed-modules:   TypingHaskellInHaskell
   -- other-modules:

@@ -26,24 +26,28 @@ class Magic a where
 instance Magic CExtDecl where
   magic a@(CHMFDefExt _) = do
     a' <- parse a
-    let (name :>: scheme : _) = a'
+    let
+      name = getCName a
+      Just (_ :>: scheme) = (name :>: toScheme tError) `Set.lookupLE` a'
     createPolyType name scheme a
   magic a@(CHMSDefExt (CHMStructDef (CHMHead chmIdents _ _) cStructUnion _)) = do
-    _ <- parse a
+    parse_ a
     let
       name = getCName a
       sKind = takeNKind $ length chmIdents
       sType = TCon $ Tycon name sKind
     createPolyStruct name (toScheme sType) a
   magic a@(CDeclExt _) = do
-    _ <- parse a
+    parse_ a
     enqueueExtDecl a
   magic a@(CFDefExt _) = do
-    instantiate a (Forall [] ([] :=> TCon (Tycon "pointlessType" Star)))
+    instantiate a (Forall [] ([] :=> TCon (Tycon "@pointlessType" Star)))
+    parse_ a
+    return ()
   magic a@(CHMCDefExt (CHMCDef (Ident cName _ _) chmHead cExtDecls _)) = do
     a' <- parse a
     let
-      assumpMap = Map.fromList $ (\(fName :>: fScheme) -> (fName, fScheme)) <$> a'
+      assumpMap = foldl (\m (name :>: scheme) -> Map.insert name scheme m) Map.empty a'
     sequence_
       [ let
           fName = getCName cExtDecl

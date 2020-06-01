@@ -35,7 +35,6 @@ import Data.Maybe
 import TypingHaskellInHaskell
 
 import Language.C.Data
-import Language.C.Data.Error (mkErrorInfo)
 import Language.C.Data.Ident (Ident(..))
 import Language.C.Syntax
 
@@ -47,6 +46,8 @@ import CHM.TransformMonad
 -}
 class Transform a where
   transform :: a -> TState Program
+  transform_ :: a -> TState ()
+  transform_ = (>> return ()) . transform
 
 {- |
   Just transforms the C construct into its
@@ -59,18 +60,18 @@ getTransformResult = fst . runTState . transform
   consisting of 'builtIns' and 'memberClasses' retrieved from the state
   and the given 'Assump's
 -}
-typeInfer :: [Assump] -> Program -> TState [Assump]
+typeInfer :: Set.Set Assump -> Program -> TState (Set.Set Assump)
 typeInfer assumps program = do
   TransformMonad{builtIns = bIs, memberClasses = mCs}  <- get
   case mCs initialEnv of
-    Nothing -> return $ error "Environment corrupted"
-    Just cEnv -> return $ tiProgram cEnv (Set.toList bIs ++ assumps) program
+    Nothing -> fail "Environment corrupted"
+    Just cEnv -> return $ tiProgram cEnv (bIs `Set.union` assumps) program
 
 {- |
   Runs thih on the given C construct after transforming it
   (using new state)
 -}
-runInfer :: Transform a => a -> [Assump]
+runInfer :: Transform a => a -> Set.Set Assump
 runInfer a =
   let
     (program, TransformMonad{memberClasses=mCs, builtIns=bIs}) =
@@ -78,7 +79,7 @@ runInfer a =
   in
     case mCs initialEnv of
       Nothing -> error "Environment is broken"
-      Just env -> tiProgram env (Set.toList bIs) program
+      Just env -> tiProgram env bIs program
 
 -- | Takes a 'Program' and flattens it into a 'BindGroup'
 flattenProgram :: Program -> BindGroup
@@ -171,14 +172,18 @@ translateDeclSpecs (decl:decls) = case decl of
     kind <- getStructKind name
     return $ TCon (Tycon name kind)
   CTypeSpec (CSUType (CStruct _ (Just (Ident name _ _)) (Just cDecls) _ _) _) -> do
+    registered <- registerStruct name
     registerStructMembers name cDecls
-    kind <- getStructKind name
-    return (TCon (Tycon name kind))
+    unless registered . error $
+      niceError "struct redefinition" (nodeInfo decl)
+    return (TCon (Tycon name Star))
   CTypeSpec (CSUType (CStruct _ Nothing (Just cDecls) _ _) _ ) -> do
     name <- appendNextAnon "@Struct"
+    registered <- registerStruct name
     registerStructMembers name cDecls
-    kind <- getStructKind name
-    return $ TCon (Tycon name kind)  -- REALLY?
+    unless registered . error $
+      niceError "struct redefinition" (nodeInfo decl)
+    return (TCon (Tycon name Star))
   CTypeSpec (CSUType (CStruct _ Nothing _ _ _) _ ) -> return tError  -- TODO
   CTypeSpec (CTypeDef (Ident name _ _) _) -> do
     name <- scopedName name
@@ -257,7 +262,6 @@ extractParameters [] = return []
 registerStructMembers :: Id -> [CDecl] -> TState ()
 registerStructMembers _ [] = return ()
 registerStructMembers id cDecls = do
-  registered <- registerStruct id
   let
     registerSingleCDecl (CDecl specs declrs a) =
       case declrs of
@@ -269,12 +273,11 @@ registerStructMembers id cDecls = do
         (Just (CDeclr (Just (Ident mId _ _)) derivedDecls _ _ _), Just _, Nothing):rest ->
           registerSingleCDecl (CDecl specs rest a)  -- TODO: this is probably error (but still recognized by c++ as kosher)
         [] -> return ()
-  when registered $ sequence_ (registerSingleCDecl <$> cDecls)
+  sequence_ (registerSingleCDecl <$> cDecls)
 
 registerCHMStructMembers :: Id -> [CDecl] -> TState ()
 registerCHMStructMembers _ [] = return ()
 registerCHMStructMembers id cDecls = do
-  registered <- registerStruct id
   let
     registerSingleCDecl (CDecl specs declrs a) =
       case declrs of
@@ -286,7 +289,7 @@ registerCHMStructMembers id cDecls = do
         (Just (CDeclr (Just (Ident mId _ _)) derivedDecls _ _ _), Just _, Nothing):rest ->
           registerSingleCDecl (CDecl specs rest a)  -- TODO: this is probably error (but still recognized by c++ as kosher)
         _ -> return ()
-  when registered $ sequence_ (registerSingleCDecl <$> cDecls)
+  sequence_ (registerSingleCDecl <$> cDecls)
 
 instance Transform a => Transform [a] where
   transform as = concat <$> traverse transform as
@@ -498,8 +501,10 @@ transformFunDef (CFunDef specs (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _
         _ -> (tError, tError)
       typeSignatures = case head derivedDecls of
         -- old-style
-        CFunDeclr (Left idents) _ _ ->
-          error "not supporting old-style functions"  -- TODO
+        cFunDef@(CFunDeclr (Left idents) _ _) ->
+          error $ niceError
+            "Not supporting old-style functions"
+            (nodeInfo cFunDef)  -- TODO
         -- not var-args
         CFunDeclr (Right (parDecls, False)) _ _ ->
           traverse extractPar parDecls
@@ -542,7 +547,7 @@ beginCHMFunDef chmHead name = do
     name' <- sgName name
     enterFunction name
     enterCHMHead
-    _ <- transform chmHead
+    transform_ chmHead
     return name'
 
 instance Transform CHMFunDef where
@@ -755,10 +760,19 @@ instance Transform CHMHead where
     translateConstraints constraints
     return []
 
+transformStructHead :: Id -> CHMHead -> TState ()
+transformStructHead name chmHead@(CHMHead types constraints a) = do
+    transform (CHMHead types [] a)
+    registered <- registerStruct name
+    unless registered . error $ niceError
+      "Struct redefinition"
+      (nodeInfo chmHead)
+    translateConstraints constraints
+
 instance Transform CHMStructDef where
-  transform (CHMStructDef chmHead (CStruct _ (Just (Ident sId _ _)) (Just cDecls) _ _) _) = do
+  transform (CHMStructDef chmHead (CStruct _ (Just (Ident sId _ _)) (Just cDecls) _ _) nInfo) = do
     enterCHMHead
-    chmHead' <- transform chmHead
+    transformStructHead sId chmHead
     registerCHMStructMembers sId cDecls
     leaveCHMHead
     return []
@@ -772,22 +786,20 @@ declareClassContents :: Id -> [CExtDecl] -> TState [Expl]
 declareClassContents id cExtDecls = do
   registered <- registerClass id
   let
-    onlyPureMsg = "only pure declarations allowed here"
+    onlyPureMsg = "Currently only pure declarations allowed here"
     classDeclare (CDeclExt cDecl) = do
       let
-        onlyPureDeclarationError =
-          mkErrorInfo LevelError onlyPureMsg $ nodeInfo cDecl
+        onlyPureDeclarationError = niceError onlyPureMsg $ nodeInfo cDecl
         translateDeclaration ([(name, Forall [] ([] :=> t), [([], Const (name2 :>: _))])], []) = do
-          unless (name == name2) . error . show $ onlyPureDeclarationError
+          unless (name == name2) $ error onlyPureDeclarationError
           scheme <- chmScheme t
           registerClassDeclaration id (name :>: scheme)
           return (name, scheme, [])
-        translateDeclaration as = error . show $ onlyPureDeclarationError
+        translateDeclaration as = error onlyPureDeclarationError
       transform cDecl >>= traverse translateDeclaration
-    classDeclare c = error . show .
-      mkErrorInfo LevelError onlyPureMsg $ nodeInfo c
+    classDeclare c = error . niceError onlyPureMsg $ nodeInfo c
   if registered then concat <$> traverse classDeclare cExtDecls
-  else error $ "Classed " ++ id ++ " redefined"
+  else error $ "Class " ++ id ++ " redefined"
 
 instance Transform CHMCDef where
   transform (CHMCDef (Ident cId _ _) chmHead cExtDecls _) = do
@@ -815,9 +827,13 @@ defineInstanceContents id (CHMParams chmTypes _) cExtDecls = do
       mScheme <- getMethodScheme id name
       name' <- registerMethodInstance id name parType
       case mScheme of
-       Just scheme' -> return ([(name', scheme, ([], Var name) : def)], [])
-       Nothing -> return $ error "Cannot define given instance method"
-    instanceDefine _ = return $ error "Instances shall contain only method definitions"
+        Just scheme' -> return ([(name', scheme, ([], Var name) : def)], [])
+        Nothing -> error $ niceError
+          "Cannot define given instance method"
+          (nodeInfo f)
+    instanceDefine cExtDecl = error $ niceError
+      "Instances can currently contain only method definitions"
+      (nodeInfo cExtDecl)
   flattenProgram <$> traverse instanceDefine cExtDecls
 
 instance Transform CHMIDef where

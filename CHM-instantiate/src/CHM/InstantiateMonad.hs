@@ -50,7 +50,7 @@ initClassPolyType cName fScheme fDef =
   (initPolyType fScheme fDef){pTypeClass = Just cName}
 
 data InstantiateMonad = InstantiateMonad
-  { parsedAssumps    :: [Assump]
+  { parsedAssumps    :: Set.Set Assump
   , transformState   :: TransformMonad
   , lastScopeCopy    :: Int
   , polyTypes        :: Map.Map Id PolyType
@@ -64,7 +64,7 @@ data InstantiateMonad = InstantiateMonad
 
 initInstantiateMonad :: InstantiateMonad
 initInstantiateMonad = InstantiateMonad
-  { parsedAssumps    = []
+  { parsedAssumps    = Set.empty
   , transformState   = initTransformMonad
   , lastScopeCopy    = 0
   , polyTypes        = Map.empty
@@ -491,15 +491,15 @@ instantiate extFunDef scheme = do
             then return ()
             else addPolyTypeInstance name mangledName >> instantiate (pTypeDefinition pType) scheme'
         Nothing -> return ()
-    | (name' :>: scheme') <- as
+    | (name' :>: scheme') <- Set.toList as
     ]
   let
     funName = getCName extFunDef'
-    tVarMap = foldl Map.union Map.empty
+    tVarMap = Map.unions
       [ if let (f, s) = span (/= ':') name' in f == funName && s /= []
           then drop (length funName + 1) name' `Map.singleton` scheme'
           else name' `Map.singleton` scheme'
-      | (name' :>: scheme') <- as
+      | (name' :>: scheme') <- Set.toList as
       ]
     -- TODO: i cannot remember what
   extFunDef'' <- replaceTVars tVarMap extFunDef' >>= flip rewrite scheme
@@ -953,7 +953,7 @@ rewrite cExtDecl scheme@(Forall [] (cs :=> t)) = do
     [iDef] -> return . CFDefExt $ renameCDef ("__" ++ name ++ mangle scheme) (getFunDef iDef)
     _ -> error "I don't know yet"  -- TODO
 
-parseReSchemedVirtual :: Scheme -> CExtDecl -> BindGroup -> IState [Assump]
+parseReSchemedVirtual :: Scheme -> CExtDecl -> BindGroup -> IState (Set.Set Assump)
 parseReSchemedVirtual scheme cExtDecl bindGroup = do
   InstantiateMonad{transformState = tS, parsedAssumps = pAs} <- get
   let
@@ -1025,15 +1025,18 @@ runTState a = do
   put state{transformState = tS'}
   return a'
 
-parse :: Transform a => a -> IState [Assump]
+parse :: Transform a => a -> IState (Set.Set Assump)
 parse a = do
   state@InstantiateMonad{transformState = tS, parsedAssumps = pAs} <- get
   let (as, tS') = runState (transform a >>= typeInfer pAs) tS
   put state
     { transformState = tS'
-    , parsedAssumps = as ++ pAs
+    , parsedAssumps = as `Set.union` pAs
     }
   return as
+
+parse_ :: Transform a => a -> IState ()
+parse_ = (>> return ()) . parse
 
 mangleScheme :: Scheme -> Id
 mangleScheme (Forall [] (cs :=> t)) = mangleType t

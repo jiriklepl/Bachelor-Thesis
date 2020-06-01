@@ -27,6 +27,7 @@
 module TypingHaskellInHaskell where
 
 import Data.List(nub, (\\), intersect, union, partition)
+import qualified Data.Set as Set
 import Control.Monad
 import qualified Control.Monad.Fail as Fail
 
@@ -79,6 +80,7 @@ tFloat   = TCon (Tycon tFloatId Star)
 tDouble  = TCon (Tycon tDoubleId Star)
 
 -- CHM additions
+tError  = TCon (Tycon "@Error" Star)
 tVoid  = TCon (Tycon "Void" Star)
 tShort = TCon (Tycon "Short" Star)
 tLong = TCon (Tycon "Long" Star)
@@ -147,6 +149,10 @@ instance Types Type where
 
 instance Types a => Types [a] where
   apply s = map (apply s)
+  tv      = nub . concatMap tv
+
+instance (Ord a, Types a) => Types (Set.Set a) where
+  apply s = Set.map (apply s)
   tv      = nub . concatMap tv
 
 infixr 4 @@
@@ -379,9 +385,11 @@ instance Types Assump where
 instance Ord Assump where
   compare (id1 :>: _) (id2 :>: _) = compare id1 id2
 
-find                 :: Fail.MonadFail m => Id -> [Assump] -> m Scheme
-find i []             = fail ("unbound identifier: " ++ i)
-find i ((i':>:sc):as) = if i==i' then return sc else find i as
+find :: Fail.MonadFail m => Id -> Set.Set Assump -> m Scheme
+find i as =
+  case (i :>: Forall [] ([] :=> tError)) `Set.lookupLE` as of
+    Just (_ :>: sc) -> return sc
+    Nothing -> fail ("unbound identifier: " ++ i)
 
 -----------------------------------------------------------------------------
 -- TIMonad:	Type inference monad
@@ -448,7 +456,7 @@ instance Instantiate Pred where
 -- Infer:	Basic definitions for type inference
 -----------------------------------------------------------------------------
 
-type Infer e t = ClassEnv -> [Assump] -> e -> TI ([Pred], t)
+type Infer e t = ClassEnv -> Set.Set Assump -> e -> TI ([Pred], t)
 
 -----------------------------------------------------------------------------
 -- Lit:		Literals
@@ -484,22 +492,22 @@ data Pat        = PVar Id
                 | PCon Assump [Pat]
                 deriving(Show)
 
-tiPat :: Pat -> TI ([Pred], [Assump], Type)
+tiPat :: Pat -> TI ([Pred], Set.Set Assump, Type)
 
 tiPat (PVar i) = do v <- newTVar Star
-                    return ([], [i :>: toScheme v], v)
+                    return ([], Set.singleton $ i :>: toScheme v, v)
 
 tiPat PWildcard   = do v <- newTVar Star
-                       return ([], [], v)
+                       return ([], Set.empty, v)
 
 tiPat (PAs i pat) = do (ps, as, t) <- tiPat pat
-                       return (ps, (i:>:toScheme t):as, t)
+                       return (ps, i:>:toScheme t `Set.insert` as, t)
 
 tiPat (PLit l) = do (ps, t) <- tiLit l
-                    return (ps, [], t)
+                    return (ps, Set.empty, t)
 
 tiPat (PNpk i k)  = do t <- newTVar Star
-                       return ([IsIn "Integral" t], [i:>:toScheme t], t)
+                       return ([IsIn "Integral" t], Set.singleton $ i:>:toScheme t, t)
 
 tiPat (PCon (i:>:sc) pats) = do (ps,as,ts) <- tiPats pats
                                 t'         <- newTVar Star
@@ -507,10 +515,10 @@ tiPat (PCon (i:>:sc) pats) = do (ps,as,ts) <- tiPats pats
                                 unify t (foldr fn t' ts)
                                 return (ps++qs, as, t')
 
-tiPats     :: [Pat] -> TI ([Pred], [Assump], [Type])
+tiPats     :: [Pat] -> TI ([Pred], Set.Set Assump, [Type])
 tiPats pats = do psasts <- mapM tiPat pats
                  let ps = concat [ ps' | (ps',_,_) <- psasts ]
-                     as = concat [ as' | (_,as',_) <- psasts ]
+                     as = Set.unions [ as' | (_,as',_) <- psasts ]
                      ts = [ t | (_,_,t) <- psasts ]
                  return (ps, as, ts)
 
@@ -539,7 +547,7 @@ tiExpr ce as (Ap e f)         = do (ps,te) <- tiExpr ce as e
                                    unify (tf `fn` t) te
                                    return (ps++qs, t)
 tiExpr ce as (Let bg e)       = do (ps, as') <- tiBindGroup ce as bg
-                                   (qs, t)   <- tiExpr ce (as' ++ as) e
+                                   (qs, t)   <- tiExpr ce (as' `Set.union` as) e
                                    return (ps ++ qs, t)
 
 tiExpr ce as (Lambda alt)          = tiAlt ce as alt
@@ -555,10 +563,10 @@ type Alt = ([Pat], Expr)
 
 tiAlt                :: Infer Alt Type
 tiAlt ce as (pats, e) = do (ps, as', ts) <- tiPats pats
-                           (qs,t)  <- tiExpr ce (as'++as) e
+                           (qs,t)  <- tiExpr ce (as' `Set.union` as) e
                            return (ps++qs, foldr fn t ts)
 
-tiAlts             :: ClassEnv -> [Assump] -> [Alt] -> Type -> TI [Pred]
+tiAlts             :: ClassEnv -> (Set.Set Assump) -> [Alt] -> Type -> TI [Pred]
 tiAlts ce as alts t = do psts <- mapM (tiAlt ce as) alts
                          mapM_ (unify t . snd) psts
                          return (concatMap fst psts)
@@ -612,7 +620,7 @@ defaultSubst    = withDefaults (zip . map fst)
 
 type Expl = (Id, Scheme, [Alt])
 
-tiExpl :: ClassEnv -> [Assump] -> Expl -> TI [Pred]
+tiExpl :: ClassEnv -> Set.Set Assump -> Expl -> TI [Pred]
 tiExpl ce as (i, sc, alts)
         = do (qs :=> t) <- freshInst sc
              ps         <- tiAlts ce as alts t
@@ -642,11 +650,11 @@ restricted   :: [Impl] -> Bool
 restricted = any simple
  where simple (i,alts) = any (null . fst) alts
 
-tiImpls         :: Infer [Impl] [Assump]
+tiImpls         :: Infer [Impl] (Set.Set Assump)
 tiImpls ce as bs = do ts <- mapM (const $ newTVar Star) bs
                       let is    = map fst bs
                           scs   = map toScheme ts
-                          as'   = zipWith (:>:) is scs ++ as
+                          as'   = Set.fromList (zipWith (:>:) is scs) `Set.union` as
                           altss = map snd bs
                       pss <- zipWithM (tiAlts ce as') altss ts
                       s   <- getSubst
@@ -659,27 +667,27 @@ tiImpls ce as bs = do ts <- mapM (const $ newTVar Star) bs
                       if restricted bs then
                           let gs'  = gs \\ tv rs
                               scs' = map (quantify gs' . ([]:=>)) ts'
-                          in return (ds++rs, zipWith (:>:) is scs')
+                          in return (ds++rs, Set.fromList $ zipWith (:>:) is scs')
                         else
                           let scs' = map (quantify gs . (rs:=>)) ts'
-                          in return (ds, zipWith (:>:) is scs')
+                          in return (ds, Set.fromList $ zipWith (:>:) is scs')
 
 -----------------------------------------------------------------------------
 
 type BindGroup  = ([Expl], [[Impl]])
 
-tiBindGroup :: Infer BindGroup [Assump]
+tiBindGroup :: Infer BindGroup (Set.Set Assump)
 tiBindGroup ce as (es,iss) =
-  do let as' = [ v:>:sc | (v,sc,alts) <- es ]
-     (ps, as'') <- tiSeq tiImpls ce (as'++as) iss
-     qss        <- mapM (tiExpl ce (as''++as'++as)) es
-     return (ps++concat qss, as''++as')
+  do let as' = Set.fromList [ v:>:sc | (v,sc,alts) <- es ]
+     (ps, as'') <- tiSeq tiImpls ce (as' `Set.union` as) iss
+     qss        <- mapM (tiExpl ce (as'' `Set.union` as' `Set.union` as)) es
+     return (ps++concat qss, as'' `Set.union` as')
 
-tiSeq                  :: Infer bg [Assump] -> Infer [bg] [Assump]
-tiSeq ti ce as []       = return ([],[])
+tiSeq                  :: Infer bg (Set.Set Assump) -> Infer [bg] (Set.Set Assump)
+tiSeq ti ce as []       = return ([],Set.empty)
 tiSeq ti ce as (bs:bss) = do (ps,as')  <- ti ce as bs
-                             (qs,as'') <- tiSeq ti ce (as'++as) bss
-                             return (ps++qs, as''++as')
+                             (qs,as'') <- tiSeq ti ce (as' `Set.union` as) bss
+                             return (ps ++ qs, as'' `Set.union` as')
 
 -----------------------------------------------------------------------------
 -- TIProg:	Type Inference for Whole Programs
@@ -687,7 +695,7 @@ tiSeq ti ce as (bs:bss) = do (ps,as')  <- ti ce as bs
 
 type Program = [BindGroup]
 
-tiProgram :: ClassEnv -> [Assump] -> Program -> [Assump]
+tiProgram :: ClassEnv -> Set.Set Assump -> Program -> Set.Set Assump
 tiProgram ce as bgs = runTI $
                       do (ps, as') <- tiSeq tiBindGroup ce as bgs
                          s         <- getSubst

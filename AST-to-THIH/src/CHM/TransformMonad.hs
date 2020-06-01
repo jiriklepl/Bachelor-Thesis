@@ -8,6 +8,7 @@ module CHM.TransformMonad
   , TypeComplexity (..)
   , TState
   , initTransformMonad
+  , niceError
   , getClassMethods
   , tPointer
   , tConst
@@ -116,13 +117,14 @@ import TypingHaskellInHaskell
 import Language.C.Data
 import Language.C.Syntax
 import Language.C.Data.Ident (Ident(..))
+import Language.C.Data.Error (mkErrorInfo)
 
 -- | Abstraction of a local variable 'Scope'
 data Scope = Scope
   { scopeName :: Id
   , scopeId :: Int
   , scopeVars :: Set.Set Id
-  }
+  } deriving(Show)
 
 type ReturnExpr = Expr
 
@@ -146,7 +148,7 @@ initGlobalScope = Scope
 data Method = Method
   { methodScheme :: Scheme
   , methodInstances :: Set.Set Type
-  }
+  } deriving(Show)
 
 -- | Initializes a new 'Method'
 initMethod :: Scheme -> Method
@@ -157,11 +159,11 @@ initMethod s = Method
 
 newtype Struct = Struct
   { structKind :: Kind
-  }
+  } deriving(Show)
 
 newtype UserClass = UserClass
   { methods :: Map.Map Id Method
-  }
+  } deriving(Show)
 
 -- | Used mainly in lists of 'Method's
 type MethodNamed = (Id, Method)
@@ -219,12 +221,16 @@ data TransformMonad = TransformMonad
 type TState = State TransformMonad
 
 -- | Common type constants
-tPointer, tConst, tError, tTuple3, tNULL :: Type
+
+niceError :: String -> NodeInfo -> String
+niceError =
+  (show .) . mkErrorInfo LevelError
+
+tPointer, tConst, tTuple3, tNULL :: Type
 
 tPointer = TCon (Tycon "@Pointer" (Kfun Star Star))
 tSize_t = tInt -- TODO: For siplicity's sake, in future implementations, change it
 tConst = TCon (Tycon "@Const" (Kfun Star Star))
-tError = TCon (Tycon "@Error" Star)
 tTuple3 = TCon (Tycon "(,,)3" (Kfun Star (Kfun Star (Kfun Star Star))))
 tNULL = TCon (Tycon "@NULL" Star)
 
@@ -669,7 +675,7 @@ filterClasses acc@(tVars, preds, outPreds) =
 -- | Replaces aliases created in the last chm head by real type variables
 replaceAliases :: Type -> TState Type
 replaceAliases t@(TVar (Tyvar id kind)) = do
-  TransformMonad{typeAliases = tAs} <- get
+  tAs <- gets typeAliases
   case id `Map.lookup` head tAs of
     Just t' -> return t'
     Nothing -> return t
@@ -875,6 +881,7 @@ registerMember sId mId t = do
 -- | creates a getter/setter for a given member field of a struct with a specified type
 registerCHMMember :: Id -> Id -> Type -> TState ()
 registerCHMMember sId mId t = do
+  t' <- replaceAliases t
   state@TransformMonad
     { createdClasses = cs
     , builtIns = bIs
@@ -893,7 +900,7 @@ registerCHMMember sId mId t = do
     getter = memberGetterName mId :>:
       quantify
         (sVar : head tVs)
-        ((IsIn mClassName sTVar : head vCs) :=> (sTVar `fn` t))
+        ((IsIn mClassName sTVar : head vCs) :=> (sTVar `fn` t'))
   if mId `Set.member` cs then
     put state
       { memberClasses = mClasses
@@ -937,8 +944,12 @@ registerStruct id = do
 
 -- | returns the kind of a struct
 getStructKind :: Id -> TState Kind
-getStructKind id =
-  gets (structKind . (Map.! id) . registeredStructs)
+getStructKind id = do
+  structs <- gets registeredStructs
+  case id `Map.lookup` structs of
+    Just struct -> return (structKind struct)
+    Nothing -> error $
+      "cannot find the requested struct `" ++ id ++ "`"
 
 -- | Makes a new entry in the class environment and in the 'TransformMonad'
 registerClass :: Id -> TState Bool
