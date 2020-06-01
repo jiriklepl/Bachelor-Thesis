@@ -940,7 +940,7 @@ rewrite cExtDecl scheme@(Forall [] (cs :=> t)) = do
     Just (IsIn _ cT) = List.find (\(IsIn cId' t') -> cId' == cId) cs
     substs = catMaybes  -- TODO
       [ if c == cT
-           -- || not (null . runTI $ mgu cT c)
+           --- || not (null . runTI $ mgu cT c)
           then Just def
           else Nothing
       | (c, def) <- Map.toList (pTypeDefinitions pType)

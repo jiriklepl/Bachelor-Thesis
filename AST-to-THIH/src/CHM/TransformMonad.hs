@@ -59,6 +59,8 @@ module CHM.TransformMonad
   , returnFunc
   , caseFunc
   , castFunc
+  , sizeofFunc
+  , alignofFunc
   , ref
   , deref
   , pointer
@@ -220,6 +222,7 @@ type TState = State TransformMonad
 tPointer, tConst, tError, tTuple3, tNULL :: Type
 
 tPointer = TCon (Tycon "@Pointer" (Kfun Star Star))
+tSize_t = tInt -- TODO: For siplicity's sake, in future implementations, change it
 tConst = TCon (Tycon "@Const" (Kfun Star Star))
 tError = TCon (Tycon "@Error" Star)
 tTuple3 = TCon (Tycon "(,,)3" (Kfun Star (Kfun Star (Kfun Star Star))))
@@ -304,7 +307,7 @@ mulOpFunc, divOpFunc, modOpFunc, addOpFunc, subOpFunc,
   postDecOpFunc, plusOpFunc, minusOpFunc, complOpFunc,
   negOpFunc, commaOpFunc, ternaryOpFunc, elvisOpFunc,
   indexOpFunc, refFunc, derefFunc, returnFunc, caseFunc,
-  castFunc, cNULL :: Id
+  castFunc, sizeofFunc, alignofFunc, cNULL :: Id
 
 {-
   Operators follow a naming convention where there is
@@ -367,8 +370,10 @@ derefFunc     = "*1"
 
 returnFunc    = "@return"
 caseFunc      = "@case"
-
 castFunc      = "@cast"
+sizeofFunc      = "@sizeof"
+alignofFunc      = "@alignof"
+
 cNULL      = "NULL"
 
 -- | Initializes the transform monad's state
@@ -439,23 +444,24 @@ initTransformMonad =
       <:> addInst [] (IsIn "BinOp"  tChar)
     , builtIns =
       let
-        -- functions of the type 'a -> a'
+        aSFuncWithClasses cs = quantify [aVar] (cs :=> (aTVar `fn` tSize_t))
+        -- | functions of the type 'a -> a'
         aaFuncWithClasses cs = quantify [aVar] (cs :=> (aTVar `fn` aTVar))
-        -- functions of the type 'a -> a -> a'
+        -- | functions of the type 'a -> a -> a'
         aaaFuncWithClasses cs = quantify [aVar] (cs :=> (aTVar `fn` aTVar `fn` aTVar))
-        -- functions of the type '(a, a) -> a'
+        -- | functions of the type '(a, a) -> a'
         t2aaaFuncWithClasses cs = quantify [aVar] (cs :=> (tupleTypes [aTVar, aTVar] `fn` aTVar))
-        -- functions of the type 'a -> a -> Void'
+        -- | functions of the type 'a -> a -> Void'
         aaVFuncWithClasses cs = quantify [aVar] (cs :=> (aTVar `fn` aTVar `fn` tVoid))
-        -- functions of the type '(a, a) -> Void'
+        -- | functions of the type '(a, a) -> Void'
         t2aaVFuncWithClasses cs = quantify [aVar] (cs :=> (tupleTypes [aTVar, aTVar] `fn` tVoid))
-        -- functions of the type 'a -> b -> a'
+        -- | functions of the type 'a -> b -> a'
         abaFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (aTVar `fn` bTVar `fn` aTVar))
-        -- functions of the type '(a, b) -> a'
+        -- | functions of the type '(a, b) -> a'
         t2abaFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (tupleTypes [aTVar, bTVar] `fn` aTVar))
-        -- functions of the type 'a -> b -> Bool'
+        -- | functions of the type 'a -> b -> Bool'
         aaBFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (aTVar `fn` aTVar `fn` tBool))
-        -- functions of the type '(a, b) -> Bool'
+        -- | functions of the type '(a, b) -> Bool'
         t2abBFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (tupleTypes [aTVar, bTVar] `fn` tBool))
       in Set.fromList
         [ cNULL :>: toScheme (tPointer `TAp` tNULL)
@@ -498,6 +504,8 @@ initTransformMonad =
         , returnFunc :>: aaaFuncWithClasses []
         , caseFunc :>: quantify [aVar] ([] :=> (aTVar `fn` aTVar `fn` tBool))
         , castFunc :>: abaFuncWithClasses []
+        , sizeofFunc :>: aSFuncWithClasses []
+        , alignofFunc :>: aSFuncWithClasses []
         ]
     }
 

@@ -134,8 +134,7 @@ instance CHMSchemize Scheme where
 instance CHMSchemize BindGroup where
   chmSchemize (expls, impls) = do
       expls' <- chmSchemize expls
-      impls' <- chmSchemize impls
-      return (expls', impls')
+      return (expls', impls)
 
 instance CHMSchemize a => CHMSchemize [a] where
   chmSchemize = traverse chmSchemize
@@ -143,48 +142,7 @@ instance CHMSchemize a => CHMSchemize [a] where
 instance CHMSchemize Expl where
   chmSchemize (name, scheme, alts) = do
     scheme' <- chmSchemize scheme
-    alts' <- chmSchemize alts
-    return (name, scheme', alts')
-
-instance CHMSchemize Impl where
-  chmSchemize (name, alts) = (,) name <$> chmSchemize alts
-
-instance CHMSchemize Alt where
-  chmSchemize (pats, expr) = do
-    pats' <- chmSchemize pats
-    expr' <- chmSchemize expr
-    return (pats', expr')
-
-instance CHMSchemize Pat where
-  chmSchemize (PAs id pat) = PAs id <$> chmSchemize pat
-  chmSchemize (PCon assump pats) = do
-    assump' <- chmSchemize assump
-    pats' <- chmSchemize pats
-    return $ PCon assump' pats'
-  -- case for PVar, PWildcard, PLit, PNpk
-  chmSchemize pat = return pat
-
-instance CHMSchemize Expr where
-  chmSchemize (Let bindGroup expr) = do
-    bindGroup' <- chmSchemize bindGroup
-    expr' <- chmSchemize expr
-    return $ Let bindGroup' expr'
-  chmSchemize (Const assump) = Const <$> chmSchemize assump
-  chmSchemize (Ap expr1 expr2) = do
-    expr1' <- chmSchemize expr1
-    expr2' <- chmSchemize expr2
-    return $ Ap expr1' expr2'
-  chmSchemize (Lambda alt) =
-    Lambda <$> chmSchemize alt
-  chmSchemize (LambdaScheme scheme alt) = do
-    scheme' <- chmSchemize scheme
-    alt' <- chmSchemize alt
-    return (LambdaScheme scheme' alt')
-  -- case for Var and Lit
-  chmSchemize expr = return expr
-
-instance CHMSchemize Assump where
-  chmSchemize (id :>: scheme) = (id :>:) <$> chmSchemize scheme
+    return (name, scheme', alts)
 
 -- | Makes sure the top-most type is tConst (adds it if it isn't)
 toConst :: Type -> Type
@@ -209,20 +167,21 @@ translateDeclSpecs (decl:decls) = case decl of
   CTypeSpec (CBoolType _) -> return tBool
   CTypeSpec (CComplexType _) -> return tComplex
   CTypeSpec (CInt128Type _) -> return tInt128
-  CTypeSpec (CSUType (CStruct CStructTag (Just (Ident sId _ _)) Nothing _ _) _) -> do
-    kind <- getStructKind sId
-    return $ TCon (Tycon sId kind)
-  CTypeSpec (CSUType (CStruct CStructTag (Just (Ident sId _ _)) (Just cDecls) _ _) _) ->
-    registerStructMembers sId cDecls >> return (TCon (Tycon sId Star))
-  CTypeSpec (CSUType (CStruct CStructTag Nothing _ _ _) _ ) -> return tError  -- TODO
-  CTypeSpec (CSUType (CStruct CUnionTag (Just (Ident sId _ _)) Nothing _ _) _) -> do
-    kind <- getStructKind sId
-    return $ TCon (Tycon sId kind)
-  CTypeSpec (CSUType (CStruct CUnionTag (Just (Ident sId _ _)) (Just cDecls) _ _) _) ->
-    registerStructMembers sId cDecls >> return (TCon (Tycon sId Star))
-  CTypeSpec (CSUType (CStruct CUnionTag Nothing _ _ _) _) -> return tError  -- TODO
-  CTypeSpec (CTypeDef (Ident sId _ _) _) -> do
-    name <- scopedName sId
+  CTypeSpec (CSUType (CStruct _ (Just (Ident name _ _)) Nothing _ _) _) -> do
+    kind <- getStructKind name
+    return $ TCon (Tycon name kind)
+  CTypeSpec (CSUType (CStruct _ (Just (Ident name _ _)) (Just cDecls) _ _) _) -> do
+    registerStructMembers name cDecls
+    kind <- getStructKind name
+    return (TCon (Tycon name kind))
+  CTypeSpec (CSUType (CStruct _ Nothing (Just cDecls) _ _) _ ) -> do
+    name <- appendNextAnon "@Struct"
+    registerStructMembers name cDecls
+    kind <- getStructKind name
+    return $ TCon (Tycon name kind)  -- REALLY?
+  CTypeSpec (CSUType (CStruct _ Nothing _ _ _) _ ) -> return tError  -- TODO
+  CTypeSpec (CTypeDef (Ident name _ _) _) -> do
+    name <- scopedName name
     return $ TVar (Tyvar name Star)
   -- TODO: from here
   CTypeQual (CConstQual _) -> toConst <$> translateDeclSpecs decls  -- works only with west const :(
@@ -409,9 +368,20 @@ transformExpr cExpr = let
     return $ Ap
       (Var $ operatorFunction op)
       expr'
-  -- TODO: CSizeofExpr
-  -- TODO: CSizeofType
-  -- ditto align
+  CSizeofExpr sExpr _ -> do
+    sExpr' <- transformExpr sExpr
+    return $ Var sizeofFunc `Ap` sExpr'
+  CSizeofType sDecl _ -> do
+    sDecl' <- translateDecl sDecl
+    name <- appendNextAnon "@Decl"
+    return $ Var sizeofFunc `Ap` Const (name :>: toScheme sDecl')
+  CAlignofExpr sExpr _ -> do
+    sExpr' <- transformExpr sExpr
+    return $ Var alignofFunc `Ap` sExpr'
+  CAlignofType sDecl _ -> do
+    sDecl' <- translateDecl sDecl
+    name <- appendNextAnon "@Decl"
+    return $ Var alignofFunc `Ap` Const (name :>: toScheme sDecl')
   -- TODO: CComplexReal
   CIndex aExpr iExpr _ -> do
     aExpr' <- transformExpr aExpr
