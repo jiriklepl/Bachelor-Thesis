@@ -37,7 +37,7 @@ instance Magic CExtDecl where
     createPolyStruct name (toScheme sType) a
   magic a@(CDeclExt _) = do
     _ <- parse a
-    modify (\state -> state{cProgram = a : cProgram state})
+    enqueueExtDecl a
   magic a@(CFDefExt _) = do
     instantiate a (Forall [] ([] :=> TCon (Tycon "pointlessType" Star)))
   magic a@(CHMCDefExt (CHMCDef (Ident cName _ _) chmHead cExtDecls _)) = do

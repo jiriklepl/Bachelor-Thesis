@@ -80,6 +80,10 @@ pushPolyMaps, pullPolyMaps :: IState ()
 pushPolyMaps = modify (\state -> state{polyMaps = Map.empty : polyMaps state})
 pullPolyMaps = modify (\state -> state{polyMaps = tail $ polyMaps state})
 
+enqueueExtDecl :: CExtDecl -> IState ()
+enqueueExtDecl cExtDecl =
+  modify (\state -> state{cProgram = cExtDecl : cProgram state})
+
 createPolyType :: Id -> Scheme -> CExtDecl -> IState ()
 createPolyType fName fScheme fDef = do
     state@InstantiateMonad{polyTypes = pTs} <- get
@@ -500,7 +504,7 @@ instantiate extFunDef scheme = do
     -- TODO: i cannot remember what
   extFunDef'' <- replaceTVars tVarMap extFunDef' >>= flip rewrite scheme
   pullPolyMaps
-  modify (\state -> state{cProgram = extFunDef'' : cProgram state})
+  enqueueExtDecl extFunDef''
 
 class ReplaceTVars a where
   replaceTVars :: Map.Map Id Scheme -> a -> IState a
@@ -613,7 +617,7 @@ instantiateTypeInner name (TAp (TAp (TCon (Tycon "(->)" _)) t1) t2) nInfo = do
         , Nothing)
       ]
       nInfo
-  modify (\state -> state {cProgram = cDecl : cProgram state})
+  enqueueExtDecl cDecl
 instantiateTypeInner name t@(TAp t1 t2) nInfo =
   if t1 == tPointer then do
     t2' <- typeToMono t2 nInfo
@@ -625,7 +629,7 @@ instantiateTypeInner name t@(TAp t1 t2) nInfo =
           , Nothing)
         ]
         nInfo
-    modify (\state -> state {cProgram = cDecl : cProgram state})
+    enqueueExtDecl cDecl
   else do
     state <- get
     let
@@ -895,10 +899,9 @@ instantiateSUType (CStruct cStructTag (Just name) _ _ nInfo) scheme = do
   let
     scheme' = mangle scheme
     name' = tail scheme'
-  modify (\state ->
-    state{cProgram =
-      CDeclExt
-        ( CDecl
+  enqueueExtDecl
+      ( CDeclExt $
+         CDecl
             [ CStorageSpec (CTypedef nInfo)
             , CTypeSpec $ CSUType
                 ( CStruct
@@ -907,14 +910,14 @@ instantiateSUType (CStruct cStructTag (Just name) _ _ nInfo) scheme = do
                     Nothing
                     []
                     nInfo)
-                nInfo]
+                nInfo
+            ]
             [ ( Just $ createEmptyDeclr name' nInfo
               , Nothing
               , Nothing
             ) ]
             nInfo
-        )
-      : cProgram state})
+      )
 
 rewrite :: CExtDecl -> Scheme -> IState CExtDecl
 rewrite cExtDecl@CFDefExt{} _ = return cExtDecl
