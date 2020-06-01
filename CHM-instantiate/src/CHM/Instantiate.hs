@@ -7,6 +7,7 @@ import Control.Monad.State
 import Control.Monad((>=>), when)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
+import Data.Foldable
 
 import TypingHaskellInHaskell hiding (modify)
 
@@ -19,7 +20,7 @@ import CHM.Transform
 import CHM.InstantiateMonad
 
 class Magic a where
-  magic :: a -> IState [CExtDecl]
+  magic :: a -> IState ()
 
 
 instance Magic CExtDecl where
@@ -27,7 +28,6 @@ instance Magic CExtDecl where
     a' <- parse a
     let (name :>: scheme : _) = a'
     createPolyType name scheme a
-    return []
   magic a@(CHMSDefExt (CHMStructDef (CHMHead chmIdents _ _) cStructUnion _)) = do
     _ <- parse a
     let
@@ -35,14 +35,11 @@ instance Magic CExtDecl where
       sKind = takeNKind $ length chmIdents
       sType = TCon $ Tycon name sKind
     createPolyStruct name (toScheme sType) a
-    return []
   magic a@(CDeclExt _) = do
     _ <- parse a
-    return [a]
+    modify (\state -> state{cProgram = a : cProgram state})
   magic a@(CFDefExt _) = do
     instantiate a (Forall [] ([] :=> TCon (Tycon "pointlessType" Star)))
-    parse a
-    gets (reverse . cProgram)
   magic a@(CHMCDefExt (CHMCDef (Ident cName _ _) chmHead cExtDecls _)) = do
     a' <- parse a
     let
@@ -54,7 +51,6 @@ instance Magic CExtDecl where
         in createClassPolyType cName fName fScheme cExtDecl
       | cExtDecl <- cExtDecls
       ]
-    return []
 
   -- TODO: CHMIDefHead
   magic a@(CHMIDefExt (CHMIDef iName (CHMParams chmTypes _) cExtDecls _)) = do
@@ -66,15 +62,14 @@ instance Magic CExtDecl where
         in addPTypeInstance fName parType cExtDecl
       | cExtDecl <- cExtDecls
       ]
-    return []
 
 instance Magic a => Magic [a] where
-  magic as = concat <$> traverse magic as
+  magic as = traverse_ magic as
 
 instance Magic CTranslUnit where
   magic (CTranslUnit cExtDecls _) = magic cExtDecls
 
 doMagic :: CTranslUnit -> CTranslUnit
-doMagic (CTranslUnit cExtDecls nodeInfo) = CTranslUnit
-  (evalState (magic cExtDecls) initInstantiateMonad)
-  nodeInfo
+doMagic (CTranslUnit cExtDecls nodeInfo) =
+  let state = (execState (magic cExtDecls) initInstantiateMonad)
+  in CTranslUnit (reverse (cProgram state)) nodeInfo
