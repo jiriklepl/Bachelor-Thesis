@@ -9,3 +9,4 @@
 - look at why it doesn't parse C-structs when there are no instances given in the struct definition
 - check superclasses when created user-defined instances of classes
 - make generic instances work
+- support default methods
