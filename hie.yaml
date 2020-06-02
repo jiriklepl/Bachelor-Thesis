@@ -1,6 +1,0 @@
-cradle:
-  cabal:
-    component: "C-with-Hindley-Milner-Type-System"
-    component: "CHM-instantiate"
-    component: "thih-Nov23-2000"
-    component: "AST-to-THIH"
