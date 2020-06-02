@@ -1,3 +1,7 @@
 # dist folders
 dist
 dist-newstyle
+
+.precompiled.c
+.assembly.S
+.main
