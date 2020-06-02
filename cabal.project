@@ -3,3 +3,4 @@ packages: C-with-Hindley-Milner-Type-System
           thih-Nov23-2000
           AST-to-THIH
 documentation: True
+Optimization: 2
