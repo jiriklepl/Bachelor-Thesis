@@ -20,7 +20,7 @@ parseMyFile input_file =
        Right ast      -> return ast
 
 itsAKindOfMagic :: CTranslUnit -> IO ()
-itsAKindOfMagic = printPretty . doMagic
+itsAKindOfMagic = doMagic
 
 printPretty :: CTranslUnit -> IO ()
 printPretty = print . pretty

@@ -418,6 +418,9 @@ initTransformMonad =
       <:> addClass "LogOp" []
       -- all built-in instances (work in -- TODO)
       <:> addInst [] (IsIn "Num" tInt)
+      <:> addInst [] (IsIn "Num" tShort)
+      <:> addInst [] (IsIn "Num" tLong)
+      <:> addInst [] (IsIn "Num" tChar)
       <:> addInst [] (IsIn "Add" tInt)
       <:> addInst [] (IsIn "Add" tChar)
       <:> addInst [] (IsIn "Add" tFloat)

@@ -201,7 +201,7 @@ translateDeclSpecs (decl:decls) = case decl of
   CFunSpec _ -> translateDeclSpecs decls
   CStorageSpec _ -> translateDeclSpecs decls
   CAlignSpec _ -> translateDeclSpecs decls
-  CHMAnonType _ -> TVar . (flip Tyvar Star) <$> appendNextAnon "@Anon"
+  CHMAnonType _ -> TVar . flip Tyvar Star <$> appendNextAnon "@Anon"
 
 translateDerivedDecl :: Type -> [CDerivedDeclr] -> TState Type
 translateDerivedDecl t [] = return t
@@ -850,7 +850,7 @@ class ReplaceAliasize a where
   replaceAliasize :: a -> TState a
 
 instance ReplaceAliasize Type where
-  replaceAliasize a = replaceAliases a
+  replaceAliasize = replaceAliases
 
 instance ReplaceAliasize Assump where
   replaceAliasize (id :>: scheme) =
@@ -890,8 +890,6 @@ instance ReplaceAliasize Alt where
     return (pats', expr')
 
 instance ReplaceAliasize Pat where
-  replaceAliasize (PAs id pat) =
-    PAs id <$> replaceAliasize pat
   replaceAliasize (PCon assump pats) = do
     assump' <- replaceAliasize assump
     pats' <- replaceAliasize pats
@@ -920,4 +918,4 @@ instance ReplaceAliasize Expr where
   replaceAliasize expr = return expr
 
 instance ReplaceAliasize a => ReplaceAliasize [a] where
-  replaceAliasize as = traverse replaceAliasize as
+  replaceAliasize = traverse replaceAliasize

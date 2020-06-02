@@ -5,6 +5,7 @@ import Control.Monad.State
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.List as List
+import qualified Data.Sequence as Seq
 import Data.Char
 import Data.Maybe
 
@@ -35,6 +36,20 @@ data PolyType = PolyType
   }
   deriving (Show)
 
+data InstantiateMonad = InstantiateMonad
+  { parsedAssumps    :: Set.Set Assump
+  , transformState   :: TransformMonad
+  , lastScopeCopy    :: Int
+  , polyTypes        :: Map.Map Id PolyType
+  , polyStructUnions :: Map.Map Id PolyType
+  , polyEnums        :: Map.Map Id PolyType
+  , schemeInstances  :: Set.Set Id
+  , polyAnonNumber   :: Int
+  , polyMaps         :: [Map.Map Id Id]
+  , cProgram         :: Seq.Seq CExtDecl
+  }
+
+
 -- | Creates the PolyType just with the scheme and the C definition
 initPolyType :: Scheme -> CExtDecl -> PolyType
 initPolyType scheme def = PolyType
@@ -49,19 +64,6 @@ initClassPolyType :: Id -> Scheme -> CExtDecl -> PolyType
 initClassPolyType cName fScheme fDef =
   (initPolyType fScheme fDef){pTypeClass = Just cName}
 
-data InstantiateMonad = InstantiateMonad
-  { parsedAssumps    :: Set.Set Assump
-  , transformState   :: TransformMonad
-  , lastScopeCopy    :: Int
-  , polyTypes        :: Map.Map Id PolyType
-  , polyStructUnions :: Map.Map Id PolyType
-  , polyEnums        :: Map.Map Id PolyType
-  , schemeInstances  :: Set.Set Id
-  , polyAnonNumber   :: Int
-  , polyMaps         :: [Map.Map Id Id]
-  , cProgram         :: [CExtDecl]
-  }
-
 initInstantiateMonad :: InstantiateMonad
 initInstantiateMonad = InstantiateMonad
   { parsedAssumps    = Set.empty
@@ -73,7 +75,7 @@ initInstantiateMonad = InstantiateMonad
   , schemeInstances  = Set.empty
   , polyAnonNumber   = 0
   , polyMaps         = []
-  , cProgram         = []
+  , cProgram         = Seq.empty
   }
 
 pushPolyMaps, pullPolyMaps :: IState ()
@@ -82,7 +84,7 @@ pullPolyMaps = modify (\state -> state{polyMaps = tail $ polyMaps state})
 
 enqueueExtDecl :: CExtDecl -> IState ()
 enqueueExtDecl cExtDecl =
-  modify (\state -> state{cProgram = cExtDecl : cProgram state})
+  modify (\state -> state{cProgram = cProgram state Seq.|> cExtDecl})
 
 createPolyType :: Id -> Scheme -> CExtDecl -> IState ()
 createPolyType fName fScheme fDef = do

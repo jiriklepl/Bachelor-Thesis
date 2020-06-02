@@ -11,6 +11,7 @@ import Data.Foldable
 
 import TypingHaskellInHaskell hiding (modify)
 
+import Language.C (Pretty(..))
 import Language.C.Data
 import Language.C.Syntax
 import Language.C.Data.Ident (Ident(..))
@@ -68,12 +69,12 @@ instance Magic CExtDecl where
       ]
 
 instance Magic a => Magic [a] where
-  magic as = traverse_ magic as
+  magic = traverse_ magic
 
 instance Magic CTranslUnit where
   magic (CTranslUnit cExtDecls _) = magic cExtDecls
 
-doMagic :: CTranslUnit -> CTranslUnit
+doMagic :: CTranslUnit -> IO ()
 doMagic (CTranslUnit cExtDecls nodeInfo) =
-  let state = (execState (magic cExtDecls) initInstantiateMonad)
-  in CTranslUnit (reverse (cProgram state)) nodeInfo
+  let state = execState (magic cExtDecls) initInstantiateMonad
+  in foldl (\u decl -> u >> print (pretty decl)) (return ()) (cProgram state)
