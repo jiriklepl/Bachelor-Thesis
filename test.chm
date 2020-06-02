@@ -1,7 +1,7 @@
 // CHM test source code
 #include "stl.h"
 
-//
+/*/
 <a>
 struct vector {
 	a* data;
@@ -74,7 +74,7 @@ int main()
 	f();
 }
 
-/*/
+//
 
 <a, b>
 struct test_struct
@@ -96,7 +96,7 @@ int main()
 		f(i, c);
 }
 
-//
+/*/
 
 <a : b ~ struct List : <a> >
 struct List
@@ -105,18 +105,35 @@ struct List
 	b *next;
 };
 
-<a  : b ~ struct List : <a> >
+<a : b ~ struct List : <a> >
+b *push(b *head, a value)
+{
+    b *item = new(); // new() is an stl function behaving as malloc(sizeof(b))
+    item->value = value;
+    item->next = head;
+    return item;
+}
+
+<a : b ~ struct List : <a> >
+b *pull(b *head)
+{
+	b* next = head->next;
+	delete(head);
+	return next;
+}
+
+/**/
+
+<a>
 int f()
 {
-	int i;
-	b list;
-	list.value = i;
+	a x = push(nullptr(), 1);
+	x = push(x, 2);
+	x = push(x, 3);
+	x = push(x, 4);
 }
 
 int main()
 {
-	int i;
 	f();
 }
-
-/**/
