@@ -260,28 +260,6 @@ addClass i is ce
  | not (all (defined . classes ce) is) = fail "superclass not defined"
  | otherwise                           = return (modify ce i (is, []))
 
-addPreludeClasses :: EnvTransformer
-addPreludeClasses  = addCoreClasses <:> addNumClasses
-
-addCoreClasses ::   EnvTransformer
-addCoreClasses  =   addClass "Eq" []
-                <:> addClass "Ord" ["Eq"]
-                <:> addClass "Show" []
-                <:> addClass "Read" []
-                <:> addClass "Bounded" []
-                <:> addClass "Enum" []
-                <:> addClass "Functor" []
-                <:> addClass "Monad" []
-
-addNumClasses  ::   EnvTransformer
-addNumClasses   =   addClass "Num" ["Eq", "Show"]
-                <:> addClass "Real" ["Num", "Ord"]
-                <:> addClass "Fractional" ["Num"]
-                <:> addClass "Integral" ["Real", "Enum"]
-                <:> addClass "RealFrac" ["Real", "Fractional"]
-                <:> addClass "Floating" ["Fractional"]
-                <:> addClass "RealFloat" ["RealFrac", "Floating"]
-
 addInst                        :: [Pred] -> Pred -> EnvTransformer
 addInst ps p@(IsIn i _) ce
  | not (defined (classes ce i)) = fail "no class for instance"
@@ -293,16 +271,6 @@ addInst ps p@(IsIn i _) ce
 
 overlap       :: Pred -> Pred -> Bool
 overlap p q    = defined (mguPred p q)
-
-exampleInsts ::  EnvTransformer
-exampleInsts =   addPreludeClasses
-             <:> addInst [] (IsIn "Ord" tUnit)
-             <:> addInst [] (IsIn "Ord" tChar)
-             <:> addInst [] (IsIn "Ord" tInt)
-             <:> addInst [IsIn "Ord" (TVar (Tyvar "a" Star)),
-                          IsIn "Ord" (TVar (Tyvar "b" Star))]
-                         (IsIn "Ord" (pair (TVar (Tyvar "a" Star))
-                                           (TVar (Tyvar "b" Star))))
 
 -----------------------------------------------------------------------------
 
@@ -398,7 +366,7 @@ find i as =
 newtype TI a = TI (Subst -> Int -> (Subst, Int, a))
 
 instance Fail.MonadFail TI where
-  fail string = error string
+  fail = error
 
 instance Monad TI where
   return x   = TI (\s n -> (s,n,x))
@@ -464,7 +432,6 @@ type Infer e t = ClassEnv -> Set.Set Assump -> e -> TI ([Pred], t)
 
 data Literal = LitInt  Integer
              | LitChar Char
-             | LitRat  Rational
              | LitFloat String  -- (CHM) added like this to mirror the Language.C definition
              | LitStr  String
              | LitVoid
@@ -475,8 +442,6 @@ tiLit (LitChar _) = return ([], tChar)
 tiLit (LitInt _)  = do v <- newTVar Star
                        return ([IsIn "Num" v], v)
 tiLit (LitStr _)  = return ([], tString)
-tiLit (LitRat _)  = do v <- newTVar Star
-                       return ([IsIn "Fractional" v], v)
 tiLit (LitFloat _)  = return ([], tFloat)  -- (CHM)
 tiLit LitVoid  = return ([], tVoid)  -- (CHM)
 
@@ -485,10 +450,6 @@ tiLit LitVoid  = return ([], tVoid)  -- (CHM)
 -----------------------------------------------------------------------------
 
 data Pat        = PVar Id
-                | PWildcard
-                | PAs  Id Pat
-                | PLit Literal
-                | PNpk Id Integer
                 | PCon Assump [Pat]
                 deriving(Show)
 
@@ -496,18 +457,6 @@ tiPat :: Pat -> TI ([Pred], Set.Set Assump, Type)
 
 tiPat (PVar i) = do v <- newTVar Star
                     return ([], Set.singleton $ i :>: toScheme v, v)
-
-tiPat PWildcard   = do v <- newTVar Star
-                       return ([], Set.empty, v)
-
-tiPat (PAs i pat) = do (ps, as, t) <- tiPat pat
-                       return (ps, i:>:toScheme t `Set.insert` as, t)
-
-tiPat (PLit l) = do (ps, t) <- tiLit l
-                    return (ps, Set.empty, t)
-
-tiPat (PNpk i k)  = do t <- newTVar Star
-                       return ([IsIn "Integral" t], Set.singleton $ i:>:toScheme t, t)
 
 tiPat (PCon (i:>:sc) pats) = do (ps,as,ts) <- tiPats pats
                                 t'         <- newTVar Star
@@ -566,7 +515,7 @@ tiAlt ce as (pats, e) = do (ps, as', ts) <- tiPats pats
                            (qs,t)  <- tiExpr ce (as' `Set.union` as) e
                            return (ps++qs, foldr fn t ts)
 
-tiAlts             :: ClassEnv -> (Set.Set Assump) -> [Alt] -> Type -> TI [Pred]
+tiAlts             :: ClassEnv -> Set.Set Assump -> [Alt] -> Type -> TI [Pred]
 tiAlts ce as alts t = do psts <- mapM (tiAlt ce as) alts
                          mapM_ (unify t . snd) psts
                          return (concatMap fst psts)
