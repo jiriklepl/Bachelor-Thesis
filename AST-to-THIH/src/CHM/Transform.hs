@@ -64,7 +64,7 @@ typeInfer :: Set.Set Assump -> Program -> TState (Set.Set Assump)
 typeInfer assumps program = do
   TransformMonad{builtIns = bIs, memberClasses = mCs}  <- get
   case mCs initialEnv of
-    Nothing -> fail "Environment corrupted"
+    Nothing -> error "Environment corrupted"
     Just cEnv -> return $ tiProgram cEnv (bIs `Set.union` assumps) program
 
 {- |
