@@ -8,3 +8,4 @@
 - check superclasses when created user-defined instances of classes
 - make generic instances work
 - support default methods
+- fix bindings in switch statements
