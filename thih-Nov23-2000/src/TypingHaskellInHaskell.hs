@@ -155,7 +155,7 @@ instance Types a => Types [a] where
 
 instance (Ord a, Types a) => Types (Set.Set a) where
   apply s = Set.map (apply s)
-  tv      = tv . Set.toList
+  tv      = foldl ( (. tv) . Set.union) Set.empty
 
 infixr 4 @@
 (@@)       :: Subst -> Subst -> Subst
@@ -357,10 +357,10 @@ instance Ord Assump where
   compare (id1 :>: _) (id2 :>: _) = compare id1 id2
 
 find :: Fail.MonadFail m => Id -> Set.Set Assump -> m Scheme
-find i as =
-  case (i :>: Forall [] ([] :=> tError)) `Set.lookupLE` as of
-    Just (_ :>: sc) -> return sc
-    Nothing -> fail ("unbound identifier: " ++ i)
+find i as = let errorMSG = fail ("unbound identifier: " ++ i)
+  in case (i :>: Forall [] ([] :=> tError)) `Set.lookupLE` as of
+    Just (i' :>: sc) -> if i == i' then return sc else errorMSG
+    Nothing -> errorMSG
 
 -----------------------------------------------------------------------------
 -- TIMonad:	Type inference monad
@@ -497,7 +497,7 @@ tiExpr ce as (Ap e f)         = do (ps,te) <- tiExpr ce as e
                                    (qs,tf) <- tiExpr ce as f
                                    t       <- newTVar Star
                                    unify (tf `fn` t) te
-                                   return (ps++qs, t)
+                                   return (ps ++ qs, t)
 tiExpr ce as (Let bg e)       = do (ps, as') <- tiBindGroup ce as bg
                                    (qs, t)   <- tiExpr ce (as' `Set.union` as) e
                                    return (ps ++ qs, t)
@@ -604,9 +604,10 @@ restricted = any simple
 
 tiImpls         :: Infer [Impl] (Set.Set Assump)
 tiImpls ce as bs = do ts <- sequence $ take (length bs) [newTVar Star]
-                      let is    = map fst bs
+                      let zIs = Set.fromList . zipWith (:>:) is
+                          is    = map fst bs
                           scs   = map toScheme ts
-                          as'   = Set.fromList (zipWith (:>:) is scs) `Set.union` as
+                          as'   = zIs scs `Set.union` as
                           altss = map snd bs
                       pss <- zipWithM (tiAlts ce as') altss ts
                       s   <- getSubst
@@ -619,10 +620,10 @@ tiImpls ce as bs = do ts <- sequence $ take (length bs) [newTVar Star]
                       if restricted bs then
                           let gs'  = gs Set.\\ tv rs
                               scs' = map (quantify gs' . ([]:=>)) ts'
-                          in return (ds++rs, Set.fromList $ zipWith (:>:) is  scs')
+                          in return (ds++rs, zIs scs')
                         else
                           let scs' = map (quantify gs . (rs:=>)) ts'
-                          in return (ds, Set.fromList $ zipWith (:>:) is scs')
+                          in return (ds, zIs scs')
 
 -----------------------------------------------------------------------------
 
