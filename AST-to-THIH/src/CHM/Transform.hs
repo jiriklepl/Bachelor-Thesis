@@ -23,6 +23,7 @@ module CHM.Transform
   , typeInfer
   , flattenProgram
   , storeName
+  , niceError
   ) where
 
 import Debug.Trace

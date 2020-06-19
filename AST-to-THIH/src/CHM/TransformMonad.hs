@@ -453,25 +453,25 @@ initTransformMonad =
       <:> addInst [] (IsIn "BinOp"  tChar)
     , builtIns =
       let
-        aSFuncWithClasses cs = quantify [aVar] (cs :=> (aTVar `fn` tSize_t))
+        aSFuncWithClasses cs = quantify (Set.fromList [aVar]) (cs :=> (aTVar `fn` tSize_t))
         -- | functions of the type 'a -> a'
-        aaFuncWithClasses cs = quantify [aVar] (cs :=> (aTVar `fn` aTVar))
+        aaFuncWithClasses cs = quantify (Set.fromList [aVar]) (cs :=> (aTVar `fn` aTVar))
         -- | functions of the type 'a -> a -> a'
-        aaaFuncWithClasses cs = quantify [aVar] (cs :=> (aTVar `fn` aTVar `fn` aTVar))
+        aaaFuncWithClasses cs = quantify (Set.fromList [aVar]) (cs :=> (aTVar `fn` aTVar `fn` aTVar))
         -- | functions of the type '(a, a) -> a'
-        t2aaaFuncWithClasses cs = quantify [aVar] (cs :=> (tupleTypes [aTVar, aTVar] `fn` aTVar))
+        t2aaaFuncWithClasses cs = quantify (Set.fromList [aVar]) (cs :=> (tupleTypes [aTVar, aTVar] `fn` aTVar))
         -- | functions of the type 'a -> a -> Void'
-        aaVFuncWithClasses cs = quantify [aVar] (cs :=> (aTVar `fn` aTVar `fn` tVoid))
+        aaVFuncWithClasses cs = quantify (Set.fromList [aVar]) (cs :=> (aTVar `fn` aTVar `fn` tVoid))
         -- | functions of the type '(a, a) -> Void'
-        t2aaVFuncWithClasses cs = quantify [aVar] (cs :=> (tupleTypes [aTVar, aTVar] `fn` tVoid))
+        t2aaVFuncWithClasses cs = quantify (Set.fromList [aVar]) (cs :=> (tupleTypes [aTVar, aTVar] `fn` tVoid))
         -- | functions of the type 'a -> b -> a'
-        abaFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (aTVar `fn` bTVar `fn` aTVar))
+        abaFuncWithClasses cs = quantify (Set.fromList [aVar, bVar]) (cs :=> (aTVar `fn` bTVar `fn` aTVar))
         -- | functions of the type '(a, b) -> a'
-        t2abaFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (tupleTypes [aTVar, bTVar] `fn` aTVar))
+        t2abaFuncWithClasses cs = quantify (Set.fromList [aVar, bVar]) (cs :=> (tupleTypes [aTVar, bTVar] `fn` aTVar))
         -- | functions of the type 'a -> b -> Bool'
-        aaBFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (aTVar `fn` aTVar `fn` tBool))
+        aaBFuncWithClasses cs = quantify (Set.fromList [aVar, bVar]) (cs :=> (aTVar `fn` aTVar `fn` tBool))
         -- | functions of the type '(a, b) -> Bool'
-        t2abBFuncWithClasses cs = quantify [aVar, bVar] (cs :=> (tupleTypes [aTVar, bTVar] `fn` tBool))
+        t2abBFuncWithClasses cs = quantify (Set.fromList [aVar, bVar]) (cs :=> (tupleTypes [aTVar, bTVar] `fn` tBool))
       in Set.fromList
         [ cNULL :>: toScheme (tPointer `TAp` tNULL)
         , addOpFunc :>: aaaFuncWithClasses [IsIn "Add" aTVar]
@@ -504,14 +504,14 @@ initTransformMonad =
         , minusOpFunc   :>: aaFuncWithClasses [IsIn "Sub" aTVar]
         , complOpFunc   :>: aaFuncWithClasses [IsIn "BinOp" aTVar]
         , negOpFunc     :>: toScheme (tBool `fn` tBool)
-        , commaOpFunc :>: quantify [aVar, bVar] ([] :=> (aTVar `fn` bTVar `fn` bTVar))
-        , ternaryOpFunc :>: quantify [aVar, bVar] ([] :=> (aTVar `fn` bTVar `fn` bTVar `fn` bTVar)) -- TODO: aTVar has to be 0 comparable
-        , elvisOpFunc :>: quantify [aVar, bVar] ([] :=> (aTVar `fn` bTVar `fn` bTVar)) -- TODO: aTVar has to be 0 comparable
-        , indexOpFunc :>: quantify [aVar, bVar] ([] :=> (pointer aTVar `fn` bTVar `fn` aTVar)) -- TODO: bTVar has to be integral
-        , refFunc :>: quantify [aVar] ([] :=> (aTVar `fn` pointer aTVar))
-        , derefFunc :>: quantify [aVar] ([] :=> (pointer aTVar `fn` aTVar))
+        , commaOpFunc :>: quantify (Set.fromList [aVar, bVar]) ([] :=> (aTVar `fn` bTVar `fn` bTVar))
+        , ternaryOpFunc :>: quantify (Set.fromList [aVar, bVar]) ([] :=> (aTVar `fn` bTVar `fn` bTVar `fn` bTVar)) -- TODO: aTVar has to be 0 comparable
+        , elvisOpFunc :>: quantify (Set.fromList [aVar, bVar]) ([] :=> (aTVar `fn` bTVar `fn` bTVar)) -- TODO: aTVar has to be 0 comparable
+        , indexOpFunc :>: quantify (Set.fromList [aVar, bVar]) ([] :=> (pointer aTVar `fn` bTVar `fn` aTVar)) -- TODO: bTVar has to be integral
+        , refFunc :>: quantify (Set.fromList [aVar]) ([] :=> (aTVar `fn` pointer aTVar))
+        , derefFunc :>: quantify (Set.fromList [aVar]) ([] :=> (pointer aTVar `fn` aTVar))
         , returnFunc :>: aaaFuncWithClasses []
-        , caseFunc :>: quantify [aVar] ([] :=> (aTVar `fn` aTVar `fn` tBool))
+        , caseFunc :>: quantify (Set.fromList [aVar]) ([] :=> (aTVar `fn` aTVar `fn` tBool))
         , castFunc :>: abaFuncWithClasses []
         , sizeofFunc :>: aSFuncWithClasses []
         , alignofFunc :>: aSFuncWithClasses []
@@ -701,7 +701,7 @@ chmScheme t = do
     tVars = Set.fromList [id | Tyvar id _ <- head tVs]
     (types, _) = filterTypes t' (Set.empty, tVars)
     (types', _, classes) = filterClasses (types, head vCs, [])
-  return $ quantify (Set.toList types') $ classes :=> t'
+  return $ quantify types' $ classes :=> t'
 {-
 chmScheme :: Type -> TState Scheme
 chmScheme t = do
@@ -810,11 +810,7 @@ tupleize ts = foldr fn (tupleTypes ts) ts
 
 -- | Returns the 'Scheme' of a tuple constructor that takes 'Int' 'Type's
 getTupleCon :: Int -> Scheme
-getTupleCon n =
-  let
-    as = [Tyvar ("a" ++ show x) Star | x <- [1..n]]
-  in
-    quantify as ([] :=> tupleize (TVar <$> as))
+getTupleCon n = Forall (replicate n Star) $ [] :=> tupleize (map TGen [0 .. n-1])
 
 -- | Returns a function that creates a tuple of 'Int' variables
 -- creates it if called for the first time
@@ -865,7 +861,7 @@ registerMember sId mId t = do
     mClassName = memberClassName mId
     sCon = TCon (Tycon sId Star)
     getter = memberGetterName mId :>:
-        quantify [sVar]
+        quantify (Set.singleton sVar)
         ([IsIn mClassName sTVar] :=> (sTVar `fn` t))
   if mId `Set.member` cs then
     put state
@@ -902,7 +898,7 @@ registerCHMMember sId mId t = do
     sCon = foldl TAp (TCon (Tycon sId sKind)) tVars
     getter = memberGetterName mId :>:
       quantify
-        (sVar : head tVs)
+        (Set.fromList (sVar : head tVs))
         ((IsIn mClassName sTVar : head vCs) :=> (sTVar `fn` t'))
   if mId `Set.member` cs then
     put state

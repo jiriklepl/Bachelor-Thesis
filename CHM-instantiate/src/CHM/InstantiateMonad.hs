@@ -458,9 +458,8 @@ instance
 
 instantiate :: CExtDecl -> Scheme -> IState ()
 instantiate extFunDef scheme = do
-  when (typeComplexity scheme > 500) . error . show $
-    mkErrorInfo
-      LevelError
+  when (typeComplexity scheme > 500) . error $
+    niceError
       "Type too complex, detected possible instantiation of an infinite type"
       (nodeInfo extFunDef)
   syncScopes
@@ -644,10 +643,10 @@ instantiateTypeInner name t@(TAp t1 t2) nInfo =
 
 schemeToMono :: Scheme -> NodeInfo -> IState Id
 schemeToMono scheme@(Forall tVs (cs :=> t)) nInfo = do
-  unless (isDetType scheme) . error . show $ mkErrorInfo
-    LevelError
-    "Cannot determine monotype"
-    nInfo
+  unless (isDetType scheme) . error $
+    niceError
+      "Cannot determine monotype"
+      nInfo
   typeToMono t nInfo
 
 

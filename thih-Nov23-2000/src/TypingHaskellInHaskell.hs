@@ -26,8 +26,10 @@
 
 module TypingHaskellInHaskell where
 
-import Data.List(nub, (\\), intersect, union, partition)
+import Data.List(partition, (\\))
 import qualified Data.Set as Set
+import qualified Data.Map as Map
+
 import Control.Monad
 import qualified Control.Monad.Fail as Fail
 
@@ -124,45 +126,45 @@ instance HasKind Type where
 -- Subst:	Substitutions
 -----------------------------------------------------------------------------
 
-type Subst  = [(Tyvar, Type)]
+type Subst  = Map.Map Tyvar Type
 
 nullSubst  :: Subst
-nullSubst   = []
+nullSubst   = Map.empty
 
 (+->)      :: Tyvar -> Type -> Subst
-u +-> t     = [(u, t)]
+u +-> t     = Map.singleton u t
 
 class Types t where
   apply :: Subst -> t -> t
-  tv    :: t -> [Tyvar]
+  tv    :: t -> Set.Set Tyvar
 
 instance Types Type where
-  apply s (TVar u)  = case lookup u s of
+  apply s (TVar u)  = case Map.lookup u s of
                        Just t  -> t
                        Nothing -> TVar u
   apply s (TAp l r) = TAp (apply s l) (apply s r)
   apply s t         = t
 
-  tv (TVar u)  = [u]
-  tv (TAp l r) = tv l `union` tv r
-  tv t         = []
+  tv (TVar u)  = Set.singleton u
+  tv (TAp l r) = tv l `Set.union` tv r
+  tv t         = Set.empty
 
 instance Types a => Types [a] where
   apply s = map (apply s)
-  tv      = nub . concatMap tv
+  tv      = Set.unions . map tv
 
 instance (Ord a, Types a) => Types (Set.Set a) where
   apply s = Set.map (apply s)
-  tv      = nub . concatMap tv
+  tv      = tv . Set.toList
 
 infixr 4 @@
 (@@)       :: Subst -> Subst -> Subst
-s1 @@ s2    = [ (u, apply s1 t) | (u,t) <- s2 ] ++ s1
+s1 @@ s2    = Map.map (apply s1) s2 `Map.union` s1
 
 merge      :: Fail.MonadFail m => Subst -> Subst -> m Subst
-merge s1 s2 = if agree then return (s1++s2) else fail "merge fails"
+merge s1 s2 = if agree then return (s1 `Map.union` s2) else fail "merge fails"
  where agree = all (\v -> apply s1 (TVar v) == apply s2 (TVar v))
-                   (map fst s1 `intersect` map fst s2)
+                   (Map.keysSet s1 `Set.intersection` Map.keysSet s2)
 
 -----------------------------------------------------------------------------
 -- Unify:	Unification
@@ -207,7 +209,7 @@ data Pred   = IsIn Id Type
 
 instance Types t => Types (Qual t) where
   apply s (ps :=> t) = apply s ps :=> apply s t
-  tv (ps :=> t)      = tv ps `union` tv t
+  tv (ps :=> t)      = tv ps `Set.union` tv t
 
 instance Types Pred where
   apply s (IsIn i t) = IsIn i (apply s t)
@@ -331,11 +333,12 @@ instance Types Scheme where
   apply s (Forall ks qt) = Forall ks (apply s qt)
   tv (Forall ks qt)      = tv qt
 
-quantify      :: [Tyvar] -> Qual Type -> Scheme
+quantify      :: Set.Set Tyvar -> Qual Type -> Scheme
 quantify vs qt = Forall ks (apply s qt)
- where vs' = [ v | v <- tv qt, v `elem` vs ]
-       ks  = map kind vs'
-       s   = zip vs' (map TGen [0..])
+ where vs' = Set.filter (`elem` vs) (tv qt)
+       vs'' = Set.toList vs'
+       ks  = map kind vs''
+       s   = Map.fromList $ zip (vs'') (map TGen [0..])
 
 toScheme      :: Type -> Scheme
 toScheme t     = Forall [] ([] :=> t)
@@ -395,7 +398,7 @@ unify t1 t2 = do s <- getSubst
                  extSubst u
 
 extSubst   :: Subst -> TI ()
-extSubst s' = TI (\s n -> (s'@@s, n, ()))
+extSubst s' = TI (\s n -> (s' @@ s, n, ()))
 
 newTVar    :: Kind -> TI Type
 newTVar k   = TI (\s n -> let v = Tyvar (enumId n) k
@@ -522,17 +525,17 @@ tiAlts ce as alts t = do psts <- mapM (tiAlt ce as) alts
 
 -----------------------------------------------------------------------------
 
-split :: Fail.MonadFail m => ClassEnv -> [Tyvar] -> [Tyvar] -> [Pred]
+split :: Fail.MonadFail m => ClassEnv -> Set.Set Tyvar -> Set.Set Tyvar -> [Pred]
                       -> m ([Pred], [Pred])
 split ce fs gs ps = do ps' <- reduce ce ps
                        let (ds, rs) = partition (all (`elem` fs) . tv) ps'
-                       rs' <- defaultedPreds ce (fs++gs) rs
+                       rs' <- defaultedPreds ce (fs `Set.union` gs) rs
                        return (ds, rs \\ rs')
 
 type Ambiguity       = (Tyvar, [Pred])
 
-ambiguities         :: ClassEnv -> [Tyvar] -> [Pred] -> [Ambiguity]
-ambiguities ce vs ps = [ (v, filter (elem v . tv) ps) | v <- tv ps \\ vs ]
+ambiguities         :: ClassEnv -> Set.Set Tyvar -> [Pred] -> [Ambiguity]
+ambiguities ce vs ps = [ (v, filter (elem v . tv) ps) | v <- Set.toList $ tv ps Set.\\ vs ]
 
 numClasses :: [Id]
 numClasses  = ["Num", "Integral", "Floating", "Fractional",
@@ -552,18 +555,18 @@ candidates ce (v, qs) = [ t' | let is = [ i | IsIn i t <- qs ]
                                all (entail ce []) [ IsIn i t' | i <- is ] ]
 
 withDefaults :: Fail.MonadFail m => ([Ambiguity] -> [Type] -> a)
-                  -> ClassEnv -> [Tyvar] -> [Pred] -> m a
+                  -> ClassEnv -> Set.Set Tyvar -> [Pred] -> m a
 withDefaults f ce vs ps
     | any null tss  = fail "cannot resolve ambiguity"
     | otherwise     = return (f vps (map head tss))
       where vps = ambiguities ce vs ps
             tss = map (candidates ce) vps
 
-defaultedPreds :: Fail.MonadFail m => ClassEnv -> [Tyvar] -> [Pred] -> m [Pred]
+defaultedPreds :: Fail.MonadFail m => ClassEnv -> Set.Set Tyvar -> [Pred] -> m [Pred]
 defaultedPreds  = withDefaults (const . concatMap snd)
 
-defaultSubst   :: Fail.MonadFail m => ClassEnv -> [Tyvar] -> [Pred] -> m Subst
-defaultSubst    = withDefaults (zip . map fst)
+defaultSubst   :: Fail.MonadFail m => ClassEnv -> Set.Set Tyvar -> [Pred] -> m Subst
+defaultSubst    = withDefaults (\a b -> Map.fromList $ zip (map fst a) b)
 
 -----------------------------------------------------------------------------
 
@@ -577,7 +580,7 @@ tiExpl ce as (i, sc, alts)
              let qs'     = apply s qs
                  t'      = apply s t
                  fs      = tv (apply s as)
-                 gs      = tv t' \\ fs
+                 gs      = tv t' Set.\\ fs
                  sc'     = quantify gs (qs':=>t')
                  ps'     = filter (not . entail ce qs') (apply s ps)
              (ds,rs)    <- split ce fs gs ps'
@@ -600,7 +603,7 @@ restricted = any simple
  where simple (i,alts) = any (null . fst) alts
 
 tiImpls         :: Infer [Impl] (Set.Set Assump)
-tiImpls ce as bs = do ts <- mapM (const $ newTVar Star) bs
+tiImpls ce as bs = do ts <- sequence $ take (length bs) [newTVar Star]
                       let is    = map fst bs
                           scs   = map toScheme ts
                           as'   = Set.fromList (zipWith (:>:) is scs) `Set.union` as
@@ -611,12 +614,12 @@ tiImpls ce as bs = do ts <- mapM (const $ newTVar Star) bs
                           ts'     = apply s ts
                           fs      = tv (apply s as)
                           vss     = map tv ts'
-                          gs      = foldr1 union vss \\ fs
-                      (ds,rs) <- split ce fs (foldr1 intersect vss) ps'
+                          gs      = Set.unions vss Set.\\ fs
+                      (ds,rs) <- split ce fs (foldr1 Set.intersection vss) ps'
                       if restricted bs then
-                          let gs'  = gs \\ tv rs
+                          let gs'  = gs Set.\\ tv rs
                               scs' = map (quantify gs' . ([]:=>)) ts'
-                          in return (ds++rs, Set.fromList $ zipWith (:>:) is scs')
+                          in return (ds++rs, Set.fromList $ zipWith (:>:) is  scs')
                         else
                           let scs' = map (quantify gs . (rs:=>)) ts'
                           in return (ds, Set.fromList $ zipWith (:>:) is scs')
@@ -649,7 +652,7 @@ tiProgram ce as bgs = runTI $
                       do (ps, as') <- tiSeq tiBindGroup ce as bgs
                          s         <- getSubst
                          rs        <- reduce ce (apply s ps)
-                         s'        <- defaultSubst ce [] rs
-                         return (apply (s'@@s) as')
+                         s'        <- defaultSubst ce Set.empty rs
+                         return (apply (s' @@ s) as')
 
 -----------------------------------------------------------------------------
