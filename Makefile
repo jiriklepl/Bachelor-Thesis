@@ -12,7 +12,13 @@ run:
 haddock:
 	cabal new-haddock all --internal
 
-compile: build
+compile: .main
+
+.precompiled.c: build
 	cabal new-run -v0 CHM-instantiate > .precompiled.c
+
+.assembly.S: .precompiled.c
 	gcc -S -O0 -o .assembly.S .precompiled.c
-	gcc -c -o .main .assembly.S
+
+.main: .assembly.S
+	gcc -o .main .assembly.S
