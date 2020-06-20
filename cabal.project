@@ -4,3 +4,5 @@ packages: C-with-Hindley-Milner-Type-System
           AST-to-THIH
 documentation: True
 Optimization: 2
+-- profiling: True
+-- library-profiling: True
