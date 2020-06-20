@@ -9,6 +9,8 @@ import qualified Data.Sequence as Seq
 import Data.Char
 import Data.Maybe
 
+import qualified Data.ByteString.Char8 as T
+
 import Debug.Trace
 
 import Language.C.Syntax
@@ -78,6 +80,8 @@ initInstantiateMonad = InstantiateMonad
   , cProgram         = Seq.empty
   }
 
+dUnderScore = T.pack "__" :: Id
+
 pushPolyMaps, pullPolyMaps :: IState ()
 pushPolyMaps = modify (\state -> state{polyMaps = Map.empty : polyMaps state})
 pullPolyMaps = modify (\state -> state{polyMaps = tail $ polyMaps state})
@@ -134,7 +138,7 @@ replaceGen name kinds t = foldl
   (\a (kind, num) ->
     replaceType
       (TGen num)
-      (TVar . flip Tyvar kind $ "@TV" ++ name ++ "_par:" ++ show num)
+      (TVar . flip Tyvar kind $ T.concat [T.pack "@TV" , name , T.pack "_par:" , T.pack $ show num])
       a
   )
   t
@@ -153,7 +157,7 @@ polyAnonRename :: Id -> IState Id
 polyAnonRename id = do
   pAN <- gets polyAnonNumber
   modify (\state -> state{polyAnonNumber = pAN + 1})
-  return $ id ++ show pAN
+  return $ id `T.append` T.pack (show pAN)
 
 addPolyTypeInstance :: Id -> Id -> IState ()
 addPolyTypeInstance pId iId = do
@@ -292,7 +296,8 @@ instance ReplacePolyTypes CDeclSpec where
   replacePolyTypes a = return a
 
 instance ReplacePolyTypes CTypeSpec where
-  replacePolyTypes cTypeDef@(CTypeDef (Ident sId _ pos) a) = do
+  replacePolyTypes cTypeDef@(CTypeDef ident@(Ident _ _ pos) a) = do
+    let sId = getCName ident
     pTs <- gets polyTypes
     if sId `Map.member` pTs
       then do
@@ -303,7 +308,7 @@ instance ReplacePolyTypes CTypeSpec where
           (\state ->
             state{polyMaps = Map.insert sId' sId pM : pMt}
           )
-        return $ CTypeDef (Ident sId' (quad sId') pos) a
+        return $ CTypeDef (Ident (T.unpack sId') (quad (T.unpack sId')) pos) a
       else return cTypeDef
   replacePolyTypes (CTypeOfExpr cExpr a) =
     flip CTypeOfExpr a <$> replacePolyTypes cExpr
@@ -400,7 +405,8 @@ instance ReplacePolyTypes CExpr where
   replacePolyTypes (CMember cExpr ident deref a) = do
     cExpr' <- replacePolyTypes cExpr
     return $ CMember cExpr' ident deref a
-  replacePolyTypes cVar@(CVar (Ident vId _ pos) a) = do
+  replacePolyTypes cVar@(CVar ident@(Ident _ _ pos) a) = do
+    let vId = getCName ident
     pTs <- gets polyTypes
     if vId `Map.member` pTs
       then do
@@ -487,7 +493,7 @@ instantiate extFunDef scheme = do
           pTs <- gets polyTypes
           let
             pType = pTs Map.! name
-            mangledName = "__" ++ name ++ mangle scheme'
+            mangledName = T.concat [dUnderScore, name, mangle scheme']
           if mangledName `Set.member` pTypeInstances pType
             then return ()
             else addPolyTypeInstance name mangledName >> instantiate (pTypeDefinition pType) scheme'
@@ -497,8 +503,8 @@ instantiate extFunDef scheme = do
   let
     funName = getCName extFunDef'
     tVarMap = Map.unions
-      [ if let (f, s) = span (/= ':') name' in f == funName && s /= []
-          then drop (length funName + 1) name' `Map.singleton` scheme'
+      [ if let (f, s) = T.span (/= ':') name' in f == funName && s /= T.empty
+          then T.drop (T.length funName + 1) name' `Map.singleton` scheme'
           else name' `Map.singleton` scheme'
       | (name', scheme') <- Map.toList as
       ]
@@ -578,7 +584,7 @@ typeToMono t nInfo = do
 
 makeIdent :: Id -> NodeInfo -> Ident
 makeIdent name nInfo =
-  Ident name (quad name) nInfo
+  Ident (T.unpack name) (quad (T.unpack name)) nInfo
 
 createEmptyDeclr :: Id -> NodeInfo -> CDeclr
 createEmptyDeclr name nInfo =
@@ -601,25 +607,29 @@ instantiateType name t nInfo = do
   modify (\state -> state{schemeInstances = name `Set.insert` schemeInstances state})
   instantiateTypeInner name t nInfo
 
-instantiateTypeInner name (TAp (TAp (TCon (Tycon "(->)" _)) t1) t2) nInfo = do
-  let
-    getParams (TAp tA tB) = do
-      tA' <- getParams tA
-      tB' <- typeToMono tB nInfo
-      return $ tB' : tA'
-    getParams _ = return []
-  t1' <- reverse <$> getParams t1  -- at least I hope it should be reversed
-  t2' <- typeToMono t2 nInfo
-  let
-    cDecl = CDeclExt $ CDecl
-      [CStorageSpec (CTypedef nInfo), typedefSpec t2' nInfo]
-      [ ( Just . addDerivedDeclr (CFunDeclr (Right (flip typeDecl nInfo <$> t1', False)) [] nInfo) $ createEmptyDeclr name nInfo
-        , Nothing
-        , Nothing)
-      ]
-      nInfo
-  enqueueExtDecl cDecl
+instantiateTypeInner name t@(TAp (TAp (TCon (Tycon tArr _)) t1) t2) nInfo
+  | tArr == tArrowId = do
+    let
+      getParams (TAp tA tB) = do
+        tA' <- getParams tA
+        tB' <- typeToMono tB nInfo
+        return $ tB' : tA'
+      getParams _ = return []
+    t1' <- reverse <$> getParams t1  -- at least I hope it should be reversed
+    t2' <- typeToMono t2 nInfo
+    let
+      cDecl = CDeclExt $ CDecl
+        [CStorageSpec (CTypedef nInfo), typedefSpec t2' nInfo]
+        [ ( Just . addDerivedDeclr (CFunDeclr (Right (flip typeDecl nInfo <$> t1', False)) [] nInfo) $ createEmptyDeclr name nInfo
+          , Nothing
+          , Nothing)
+        ]
+        nInfo
+    enqueueExtDecl cDecl
+  | otherwise = instantiateTypeInnerHelper name t nInfo
 instantiateTypeInner name t@(TAp t1 t2) nInfo =
+  instantiateTypeInnerHelper name t nInfo
+instantiateTypeInnerHelper name t@(TAp t1 t2) nInfo =
   if t1 == tPointer then do
     t2' <- typeToMono t2 nInfo
     let
@@ -651,8 +661,8 @@ schemeToMono scheme@(Forall tVs (cs :=> t)) nInfo = do
 
 
 instance ReplaceTVars CTypeSpec where
-  replaceTVars as cTypeDef@(CTypeDef (Ident sId a b) c) =
-    case sId `Map.lookup` as of
+  replaceTVars as cTypeDef@(CTypeDef ident@(Ident _ a b) c) =
+    case getCName ident `Map.lookup` as of
       (Just scheme) -> do
         monoType <- schemeToMono scheme b
         return $ CTypeDef (makeIdent monoType b) c
@@ -837,11 +847,12 @@ instance ReplaceTVars CExpr where
     return $ CCall cExpr' cExprs' a
   replaceTVars as (CMember cExpr ident deref a) =
     flip (flip (`CMember` ident) deref) a <$> replaceTVars as cExpr
-  replaceTVars as cVar@(CVar (Ident sId _ pos) a) =
-    case sId `Map.lookup` as of
+  replaceTVars as cVar@(CVar ident@(Ident _ _ pos) a) =
+    let sId = getCName ident
+    in case sId `Map.lookup` as of
       Just scheme -> do
         polyMap <- gets (head . polyMaps)
-        let name = "__" ++ (polyMap Map.! sId) ++ mangle scheme
+        let name = T.concat [dUnderScore, polyMap Map.! sId, mangle scheme]
         return $ CVar (makeIdent name pos) a
       Nothing -> return cVar
   replaceTVars as cConst@CConst{} = return cConst
@@ -899,7 +910,7 @@ instantiateSUType :: CStructUnion -> Scheme -> IState ()
 instantiateSUType (CStruct cStructTag (Just name) _ _ nInfo) scheme = do
   let
     scheme' = mangle scheme
-    name' = tail scheme'
+    name' = T.tail scheme'
   enqueueExtDecl
       ( CDeclExt $
          CDecl
@@ -925,7 +936,7 @@ rewrite cExtDecl@CFDefExt{} _ = return cExtDecl
 rewrite cExtDecl@(CHMSDefExt (CHMStructDef _ cStructUnion _)) scheme = do
   let
     name = getCName cStructUnion
-    scheme' = tail $ mangle scheme
+    scheme' = T.tail $ mangle scheme
     cStructUnion' = renameCDef (scheme') cStructUnion
     nInfo = nodeInfo cStructUnion'
   instantiateSUType cStructUnion scheme
@@ -935,7 +946,7 @@ rewrite cExtDecl@(CHMSDefExt (CHMStructDef _ cStructUnion _)) scheme = do
       nInfo
 rewrite cExtDecl@(CHMFDefExt (CHMFunDef chmHead cFunDef _)) scheme =
   let name = getCName cFunDef
-  in return . CFDefExt $ renameCDef ("__" ++ name ++ mangle scheme) cFunDef
+  in return . CFDefExt $ renameCDef (T.concat [dUnderScore, name, mangle scheme]) cFunDef
 rewrite cExtDecl scheme@(Forall [] (cs :=> t)) = do
   let name = getCName cExtDecl
   pType <- gets ((Map.! name) . polyTypes)
@@ -951,7 +962,7 @@ rewrite cExtDecl scheme@(Forall [] (cs :=> t)) = do
       ]
   case substs of
     [] -> error "cannot create the instance"
-    [iDef] -> return . CFDefExt $ renameCDef ("__" ++ name ++ mangle scheme) (getFunDef iDef)
+    [iDef] -> return . CFDefExt $ renameCDef (T.concat [dUnderScore, name, mangle scheme]) (getFunDef iDef)
     _ -> error "I don't know yet"  -- TODO
 
 parseReSchemedVirtual :: Scheme -> CExtDecl -> BindGroup -> IState (Map.Map Id Scheme)
@@ -966,7 +977,7 @@ parseReSchemedVirtual scheme cExtDecl bindGroup = do
           let [([(name, polyScheme, alts)], []), (parExpls, [])] = cExtDecl'
           typeInfer pAs
             [ bindGroup
-            , ( parExpls ++ [ ("__" ++ name ++ mangle scheme
+            , ( parExpls ++ [ (T.concat [dUnderScore, name, mangle scheme]
                   , scheme
                   , alts
                   )
@@ -980,14 +991,14 @@ parseReSchemedVirtual scheme cExtDecl bindGroup = do
             name = getCName cExtDecl
             sKind = takeNKind $ length tVars
             tVarNames =
-              [ name ++ ':' : tVar
-              | (Ident tVar _ _) <- tVars
+              [ name `T.append` (':' `T.cons` getCName tVar)
+              | tVar <- tVars
               ]
             enScopeType set (TAp t1 t2) =
               enScopeType set t1 `TAp` enScopeType set t2
             enScopeType set t@(TVar (Tyvar id kind)) =
               if id `Set.member` set
-                then TVar (Tyvar (name ++ ':' : id) kind)
+                then TVar (Tyvar (name `T.append` (':' `T.cons` id)) kind)
                 else t
             enScopeType _ t = t
             tVars' =
@@ -999,7 +1010,7 @@ parseReSchemedVirtual scheme cExtDecl bindGroup = do
           _ <- transform chmHead
           aliases <-
             ((\(i :>: Forall [] ([] :=> t)) ->
-              (name ++ ':' : i, toScheme $ enScopeType (Set.fromList $ (\(Ident id _ _) -> id)<$> tVars) t, [])) <$>) <$> getAliases chmConstrs
+              (name `T.append` (':' `T.cons` i), toScheme $ enScopeType (Set.fromList $ getCName <$> tVars) t, [])) <$>) <$> getAliases chmConstrs
           let
           leaveCHMHead
           typeInfer pAs
@@ -1044,44 +1055,47 @@ mangleScheme (Forall [] (cs :=> t)) = mangleType t
 
 builtinTypes :: Map.Map Id Id
 builtinTypes = Map.fromList
-  [ (tCharId, "char")
-  , (tIntId, "int")
-  , (tFloatId, "float")
-  , (tDoubleId, "double")
+  [ (tCharId, T.pack "char")
+  , (tIntId, T.pack "int")
+  , (tFloatId, T.pack "float")
+  , (tDoubleId, T.pack "double")
   ]
 
 mangleType :: Type -> Id
 mangleType (TCon (Tycon id _)) = case id `Map.lookup` builtinTypes of
-  Nothing -> "TC" ++ show (length id) ++ id
+  Nothing -> T.concat [T.pack "TC", T.pack $ show (T.length id), id]
   Just cName -> cName
-mangleType (TAp (TAp (TCon (Tycon "(->)" _)) t1) t2) =
-  let
-    t1' = manglePars t1
-    t2' = mangleType t2
-  in "TF" ++ show (length t1') ++ t1' ++ show (length t2') ++ t2'
+mangleType t@(TAp (TAp (TCon (Tycon tArr _)) t1) t2)
+  | tArr == tArrowId = let
+      t1' = manglePars t1
+      t2' = mangleType t2
+    in T.concat [T.pack "TF", T.pack $ show (T.length t1'), t1', T.pack $ show (T.length t2'), t2']
+  | otherwise = mangleTypeHelper t
 
-mangleType (TAp t1 t2)
+mangleType (TAp t1 t2) =
+  mangleTypeHelper (TAp t1 t2)
+mangleTypeHelper (TAp t1 t2)
   | t1 == tPointer = let
       t1' = mangleType t2
-    in "TP" ++ show (length t1') ++ t1'
+    in T.concat [T.pack "TP", T.pack $ show (T.length t1'), t1']
   | otherwise = let
       t1' = mangleType t1
       t2' = mangleType t2
-    in "TA" ++ show (length t1') ++ t1' ++ show (length t2') ++ t2'
+    in T.concat [T.pack "TA", T.pack $ show (T.length t1'), t1', T.pack $ show (T.length t2'), t2']
 
 manglePars :: Type -> Id
-manglePars TCon{} = ""
+manglePars TCon{} = T.empty
 manglePars (TAp t1 t2) =
   let
     t1' = manglePars t1
     t2' = mangleType t2
-  in t1' ++ t2'
+  in t1' `T.append` t2'
 
 class Mangle a where
   mangle :: a -> Id
 
 instance Mangle Type where
-  mangle t = "_" ++ mangleType t
+  mangle t = T.pack "_" `T.append` mangleType t
 
 instance Mangle Scheme where
-  mangle s = "_" ++ mangleScheme s
+  mangle s = T.pack "_" `T.append` mangleScheme s

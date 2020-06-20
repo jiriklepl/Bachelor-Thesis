@@ -112,6 +112,8 @@ import Data.List
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 
+import qualified Data.ByteString.Char8 as T
+
 import TypingHaskellInHaskell
 
 import Language.C.Data
@@ -139,7 +141,7 @@ initScope name id = Scope
 -- | Initialize a new 'Scope'
 initGlobalScope :: Scope
 initGlobalScope = Scope
-  { scopeName = "global"
+  { scopeName = T.pack "global"
   , scopeId = 0
   , scopeVars = Set.empty
   }
@@ -226,13 +228,18 @@ niceError :: String -> NodeInfo -> String
 niceError =
   (show .) . mkErrorInfo LevelError
 
+tPointerId = T.pack "@Pointer"
+tConstId = T.pack "@Const"
+tTuple3Id = T.pack "(,,)3"
+tNULLId = T.pack "@NULL"
+
 tPointer, tConst, tTuple3, tNULL :: Type
 
-tPointer = TCon (Tycon "@Pointer" (Kfun Star Star))
+tPointer = TCon (Tycon tPointerId (Kfun Star Star))
 tSize_t = tInt -- TODO: For simplicity's sake; in future implementations, change it
-tConst = TCon (Tycon "@Const" (Kfun Star Star))
-tTuple3 = TCon (Tycon "(,,)3" (Kfun Star (Kfun Star (Kfun Star Star))))
-tNULL = TCon (Tycon "@NULL" Star)
+tConst = TCon (Tycon tConstId (Kfun Star Star))
+tTuple3 = TCon (Tycon tTuple3Id (Kfun Star (Kfun Star (Kfun Star Star))))
+tNULL = TCon (Tycon tNULLId Star)
 
 -- pointer reference & dereference functions
 -- | thih representation of the unary & operator
@@ -326,68 +333,68 @@ mulOpFunc, divOpFunc, modOpFunc, addOpFunc, subOpFunc,
   giving unique names to their unary and binary counterparts
 -}
 
-mulOpFunc     = "*2"
-divOpFunc     = "/2"
-modOpFunc     = "%2"
-addOpFunc     = "+2"
-subOpFunc     = "-2"
-shlOpFunc     = "<<2"  -- TODO
-shrOpFunc     = ">>2"  -- TODO
-xorOpFunc     = "^2"  -- TODO
-orOpFunc      = "|2"  -- TODO
-andOpFunc     = "&2"  -- TODO
-logAndOpFunc  = "&&2"  -- TODO
-logOrOpFunc   = "||2"  -- TODO
+mulOpFunc     = T.pack "*2"
+divOpFunc     = T.pack "/2"
+modOpFunc     = T.pack "%2"
+addOpFunc     = T.pack "+2"
+subOpFunc     = T.pack "-2"
+shlOpFunc     = T.pack "<<2"  -- TODO
+shrOpFunc     = T.pack ">>2"  -- TODO
+xorOpFunc     = T.pack "^2"  -- TODO
+orOpFunc      = T.pack "|2"  -- TODO
+andOpFunc     = T.pack "&2"  -- TODO
+logAndOpFunc  = T.pack "&&2"  -- TODO
+logOrOpFunc   = T.pack "||2"  -- TODO
 
-eqOpFunc      = "==2"
-neqOpFunc     = "!=2"
-ltOpFunc      = "<2"
-gtOpFunc      = ">2"
-leOpFunc      = "<=2"
-geOpFunc      = ">=2"
+eqOpFunc      = T.pack "==2"
+neqOpFunc     = T.pack "!=2"
+ltOpFunc      = T.pack "<2"
+gtOpFunc      = T.pack ">2"
+leOpFunc      = T.pack "<=2"
+geOpFunc      = T.pack ">=2"
 
-assOpFunc     = "=2"
-mulAssOpFunc  = "*=2"
-divAssOpFunc  = "/=2"
-modAssOpFunc  = "%=2"
-addAssOpFunc  = "+=2"
-subAssOpFunc  = "-=2"
-shlAssOpFunc  = "<<=2"  -- TODO
-shrAssOpFunc  = ">>=2"  -- TODO
-andAssOpFunc  = "&=2"  -- TODO
-xorAssOpFunc  = "^=2"  -- TODO
-orAssOpFunc   = "|=2"  -- TODO
+assOpFunc     = T.pack "=2"
+mulAssOpFunc  = T.pack "*=2"
+divAssOpFunc  = T.pack "/=2"
+modAssOpFunc  = T.pack "%=2"
+addAssOpFunc  = T.pack "+=2"
+subAssOpFunc  = T.pack "-=2"
+shlAssOpFunc  = T.pack "<<=2"  -- TODO
+shrAssOpFunc  = T.pack ">>=2"  -- TODO
+andAssOpFunc  = T.pack "&=2"  -- TODO
+xorAssOpFunc  = T.pack "^=2"  -- TODO
+orAssOpFunc   = T.pack "|=2"  -- TODO
 
-preIncOpFunc  = "++1"
-postIncOpFunc = "1++"
-preDecOpFunc  = "--1"
-postDecOpFunc = "1--"
-plusOpFunc    = "+1"
-minusOpFunc   = "-1"
-complOpFunc   = "~1"
-negOpFunc     = "!1"
+preIncOpFunc  = T.pack "++1"
+postIncOpFunc = T.pack "1++"
+preDecOpFunc  = T.pack "--1"
+postDecOpFunc = T.pack "1--"
+plusOpFunc    = T.pack "+1"
+minusOpFunc   = T.pack "-1"
+complOpFunc   = T.pack "~1"
+negOpFunc     = T.pack "!1"
 
-commaOpFunc   = ",2"
-ternaryOpFunc = "?:3"
-elvisOpFunc   = "?:2"
-indexOpFunc   = "[]2"
-refFunc       = "&1"
-derefFunc     = "*1"
+commaOpFunc   = T.pack ",2"
+ternaryOpFunc = T.pack "?:3"
+elvisOpFunc   = T.pack "?:2"
+indexOpFunc   = T.pack "[]2"
+refFunc       = T.pack "&1"
+derefFunc     = T.pack "*1"
 
-returnFunc    = "@return"
-caseFunc      = "@case"
-castFunc      = "@cast"
-sizeofFunc      = "@sizeof"
-alignofFunc      = "@alignof"
+returnFunc    = T.pack "@return"
+caseFunc      = T.pack "@case"
+castFunc      = T.pack "@cast"
+sizeofFunc      = T.pack "@sizeof"
+alignofFunc      = T.pack "@alignof"
 
-cNULL      = "NULL"
+cNULL      = T.pack "NULL"
 
 -- | Initializes the transform monad's state
 initTransformMonad :: TransformMonad
 initTransformMonad =
   let
-    aVar = Tyvar "a" Star
-    bVar = Tyvar "b" Star
+    aVar = Tyvar (T.pack "a") Star
+    bVar = Tyvar (T.pack "b") Star
     aTVar = TVar aVar
     bTVar = TVar bVar
   in TransformMonad
@@ -405,52 +412,52 @@ initTransformMonad =
     , variableClasses = [[]]
     , memberClasses =
       -- all built-in classes (work in -- TODO)
-      addClass "Num" []
-      <:> addClass "Add" []
-      <:> addClass "Sub" []
-      <:> addClass "Mul" []
-      <:> addClass "Div" []
-      <:> addClass "Mod" []  -- TODO
-      <:> addClass "Eq" []
-      <:> addClass "Eq0" []  -- TODO, for types that can compare to zero (like pointers and integral types)
-      <:> addClass "LG" []
-      <:> addClass "BinOp" []
-      <:> addClass "LogOp" []
+      addClass (T.pack "Num") []
+      <:> addClass (T.pack "Add") []
+      <:> addClass (T.pack "Sub") []
+      <:> addClass (T.pack "Mul") []
+      <:> addClass (T.pack "Div") []
+      <:> addClass (T.pack "Mod") []  -- TODO
+      <:> addClass (T.pack "Eq") []
+      <:> addClass (T.pack "Eq0") []  -- TODO, for types that can compare to zero (like pointers and integral types)
+      <:> addClass (T.pack "LG") []
+      <:> addClass (T.pack "BinOp") []
+      <:> addClass (T.pack "LogOp") []
       -- all built-in instances (work in -- TODO)
-      <:> addInst [] (IsIn "Num" tInt)
-      <:> addInst [] (IsIn "Num" tShort)
-      <:> addInst [] (IsIn "Num" tLong)
-      <:> addInst [] (IsIn "Num" tChar)
-      <:> addInst [] (IsIn "Add" tInt)
-      <:> addInst [] (IsIn "Add" tChar)
-      <:> addInst [] (IsIn "Add" tFloat)
-      <:> addInst [] (IsIn "Add" tDouble)
-      <:> addInst [] (IsIn "Add" (pointer aTVar))
-      <:> addInst [] (IsIn "Sub" tInt)
-      <:> addInst [] (IsIn "Sub" tChar)
-      <:> addInst [] (IsIn "Sub" tFloat)
-      <:> addInst [] (IsIn "Sub" tDouble)
-      <:> addInst [] (IsIn "Sub" (pointer aTVar))
-      <:> addInst [] (IsIn "Mul" tInt)
-      <:> addInst [] (IsIn "Mul" tFloat)
-      <:> addInst [] (IsIn "Mul" tDouble)
-      <:> addInst [] (IsIn "Div" tInt)
-      <:> addInst [] (IsIn "Div" tFloat)
-      <:> addInst [] (IsIn "Div" tDouble)
-      <:> addInst [] (IsIn "Mod" (pair tInt tInt))
-      <:> addInst [] (IsIn "Eq"  tInt)
-      <:> addInst [] (IsIn "Eq"  tChar)
-      <:> addInst [] (IsIn "Eq"  tFloat)
-      <:> addInst [] (IsIn "Eq"  tDouble)
-      <:> addInst [] (IsIn "Eq"  (pointer aTVar))
-      <:> addInst [] (IsIn "LG"  tInt)
-      <:> addInst [] (IsIn "LG"  tChar)
-      <:> addInst [] (IsIn "LG"  tFloat)
-      <:> addInst [] (IsIn "LG"  tDouble)
-      <:> addInst [] (IsIn "LG"  (pointer aTVar))
-      <:> addInst [] (IsIn "BinOp"  tInt)
-      <:> addInst [] (IsIn "BinOp"  tBool)
-      <:> addInst [] (IsIn "BinOp"  tChar)
+      <:> addInst [] (IsIn (T.pack "Num") tInt)
+      <:> addInst [] (IsIn (T.pack "Num") tShort)
+      <:> addInst [] (IsIn (T.pack "Num") tLong)
+      <:> addInst [] (IsIn (T.pack "Num") tChar)
+      <:> addInst [] (IsIn (T.pack "Add") tInt)
+      <:> addInst [] (IsIn (T.pack "Add") tChar)
+      <:> addInst [] (IsIn (T.pack "Add") tFloat)
+      <:> addInst [] (IsIn (T.pack "Add") tDouble)
+      <:> addInst [] (IsIn (T.pack "Add") (pointer aTVar))
+      <:> addInst [] (IsIn (T.pack "Sub") tInt)
+      <:> addInst [] (IsIn (T.pack "Sub") tChar)
+      <:> addInst [] (IsIn (T.pack "Sub") tFloat)
+      <:> addInst [] (IsIn (T.pack "Sub") tDouble)
+      <:> addInst [] (IsIn (T.pack "Sub") (pointer aTVar))
+      <:> addInst [] (IsIn (T.pack "Mul") tInt)
+      <:> addInst [] (IsIn (T.pack "Mul") tFloat)
+      <:> addInst [] (IsIn (T.pack "Mul") tDouble)
+      <:> addInst [] (IsIn (T.pack "Div") tInt)
+      <:> addInst [] (IsIn (T.pack "Div") tFloat)
+      <:> addInst [] (IsIn (T.pack "Div") tDouble)
+      <:> addInst [] (IsIn (T.pack "Mod") (pair tInt tInt))
+      <:> addInst [] (IsIn (T.pack "Eq")  tInt)
+      <:> addInst [] (IsIn (T.pack "Eq")  tChar)
+      <:> addInst [] (IsIn (T.pack "Eq")  tFloat)
+      <:> addInst [] (IsIn (T.pack "Eq")  tDouble)
+      <:> addInst [] (IsIn (T.pack "Eq")  (pointer aTVar))
+      <:> addInst [] (IsIn (T.pack "LG")  tInt)
+      <:> addInst [] (IsIn (T.pack "LG")  tChar)
+      <:> addInst [] (IsIn (T.pack "LG")  tFloat)
+      <:> addInst [] (IsIn (T.pack "LG")  tDouble)
+      <:> addInst [] (IsIn (T.pack "LG")  (pointer aTVar))
+      <:> addInst [] (IsIn (T.pack "BinOp")  tInt)
+      <:> addInst [] (IsIn (T.pack "BinOp")  tBool)
+      <:> addInst [] (IsIn (T.pack "BinOp")  tChar)
     , builtIns =
       let
         aSFuncWithClasses cs = quantify (Set.fromList [aVar]) (cs :=> (aTVar `fn` tSize_t))
@@ -474,35 +481,35 @@ initTransformMonad =
         t2abBFuncWithClasses cs = quantify (Set.fromList [aVar, bVar]) (cs :=> (tupleTypes [aTVar, bTVar] `fn` tBool))
       in Map.fromList . map (\(id:>:sc) -> (id, sc)) $
         [ cNULL :>: toScheme (tPointer `TAp` tNULL)
-        , addOpFunc :>: aaaFuncWithClasses [IsIn "Add" aTVar]
-        , subOpFunc :>: aaaFuncWithClasses [IsIn "Sub" aTVar]
-        , mulOpFunc :>: aaaFuncWithClasses [IsIn "Mul" aTVar]
-        , divOpFunc :>: aaaFuncWithClasses [IsIn "Div" aTVar]
-        , modOpFunc :>: aaaFuncWithClasses [IsIn "Mod" aTVar]
+        , addOpFunc :>: aaaFuncWithClasses [IsIn (T.pack "Add") aTVar]
+        , subOpFunc :>: aaaFuncWithClasses [IsIn (T.pack "Sub") aTVar]
+        , mulOpFunc :>: aaaFuncWithClasses [IsIn (T.pack "Mul") aTVar]
+        , divOpFunc :>: aaaFuncWithClasses [IsIn (T.pack "Div") aTVar]
+        , modOpFunc :>: aaaFuncWithClasses [IsIn (T.pack "Mod") aTVar]
         , assOpFunc :>: aaaFuncWithClasses []
-        , addAssOpFunc :>: aaaFuncWithClasses [IsIn "Add" aTVar]
-        , subAssOpFunc :>: aaaFuncWithClasses [IsIn "Sub" aTVar]
-        , mulAssOpFunc :>: aaaFuncWithClasses [IsIn "Mul" aTVar]
-        , divAssOpFunc :>: aaaFuncWithClasses [IsIn "Div" aTVar]
-        , modAssOpFunc :>: aaaFuncWithClasses [IsIn "Mod" aTVar]
+        , addAssOpFunc :>: aaaFuncWithClasses [IsIn (T.pack "Add") aTVar]
+        , subAssOpFunc :>: aaaFuncWithClasses [IsIn (T.pack "Sub") aTVar]
+        , mulAssOpFunc :>: aaaFuncWithClasses [IsIn (T.pack "Mul") aTVar]
+        , divAssOpFunc :>: aaaFuncWithClasses [IsIn (T.pack "Div") aTVar]
+        , modAssOpFunc :>: aaaFuncWithClasses [IsIn (T.pack "Mod") aTVar]
         -- , shlAssOpFunc :>:
         -- , shrAssOpFunc :>:
-        , andAssOpFunc :>: aaFuncWithClasses [IsIn "BinOp" aTVar]
-        , xorAssOpFunc :>: aaFuncWithClasses [IsIn "BinOp" aTVar]
-        , orAssOpFunc :>: aaFuncWithClasses [IsIn "BinOp" aTVar]
-        , eqOpFunc :>: aaBFuncWithClasses [IsIn "Eq" aTVar]
-        , neqOpFunc :>: aaBFuncWithClasses [IsIn "Eq" aTVar]
-        , ltOpFunc :>: aaBFuncWithClasses [IsIn "LG" aTVar]
-        , gtOpFunc :>: aaBFuncWithClasses [IsIn "LG" aTVar]
-        , leOpFunc :>: aaBFuncWithClasses [IsIn "LG" aTVar, IsIn "Eq" aTVar]
-        , geOpFunc :>: aaBFuncWithClasses [IsIn "LG" aTVar, IsIn "Eq" aTVar]
-        , preIncOpFunc  :>: aaFuncWithClasses [IsIn "Num" aTVar, IsIn "Add" aTVar]
-        , postIncOpFunc :>: aaFuncWithClasses [IsIn "Num" aTVar, IsIn "Add" aTVar]
-        , preDecOpFunc  :>: aaFuncWithClasses [IsIn "Num" aTVar, IsIn "Sub" aTVar]
-        , postDecOpFunc :>: aaFuncWithClasses [IsIn "Num" aTVar, IsIn "Sub" aTVar]
-        , plusOpFunc    :>: aaFuncWithClasses [IsIn "Add" aTVar]
-        , minusOpFunc   :>: aaFuncWithClasses [IsIn "Sub" aTVar]
-        , complOpFunc   :>: aaFuncWithClasses [IsIn "BinOp" aTVar]
+        , andAssOpFunc :>: aaFuncWithClasses [IsIn (T.pack "BinOp") aTVar]
+        , xorAssOpFunc :>: aaFuncWithClasses [IsIn (T.pack "BinOp") aTVar]
+        , orAssOpFunc :>: aaFuncWithClasses [IsIn (T.pack "BinOp") aTVar]
+        , eqOpFunc :>: aaBFuncWithClasses [IsIn (T.pack "Eq") aTVar]
+        , neqOpFunc :>: aaBFuncWithClasses [IsIn (T.pack "Eq") aTVar]
+        , ltOpFunc :>: aaBFuncWithClasses [IsIn (T.pack "LG") aTVar]
+        , gtOpFunc :>: aaBFuncWithClasses [IsIn (T.pack "LG") aTVar]
+        , leOpFunc :>: aaBFuncWithClasses [IsIn (T.pack "LG") aTVar, IsIn (T.pack "Eq") aTVar]
+        , geOpFunc :>: aaBFuncWithClasses [IsIn (T.pack "LG") aTVar, IsIn (T.pack "Eq") aTVar]
+        , preIncOpFunc  :>: aaFuncWithClasses [IsIn (T.pack "Num") aTVar, IsIn (T.pack "Add") aTVar]
+        , postIncOpFunc :>: aaFuncWithClasses [IsIn (T.pack "Num") aTVar, IsIn (T.pack "Add") aTVar]
+        , preDecOpFunc  :>: aaFuncWithClasses [IsIn (T.pack "Num") aTVar, IsIn (T.pack "Sub") aTVar]
+        , postDecOpFunc :>: aaFuncWithClasses [IsIn (T.pack "Num") aTVar, IsIn (T.pack "Sub") aTVar]
+        , plusOpFunc    :>: aaFuncWithClasses [IsIn (T.pack "Add") aTVar]
+        , minusOpFunc   :>: aaFuncWithClasses [IsIn (T.pack "Sub") aTVar]
+        , complOpFunc   :>: aaFuncWithClasses [IsIn (T.pack "BinOp") aTVar]
         , negOpFunc     :>: toScheme (tBool `fn` tBool)
         , commaOpFunc :>: quantify (Set.fromList [aVar, bVar]) ([] :=> (aTVar `fn` bTVar `fn` bTVar))
         , ternaryOpFunc :>: quantify (Set.fromList [aVar, bVar]) ([] :=> (aTVar `fn` bTVar `fn` bTVar `fn` bTVar)) -- TODO: aTVar has to be 0 comparable
@@ -523,13 +530,13 @@ renameScoped :: Scope -> Id -> Id
 renameScoped Scope{scopeName = name, scopeId = n} id =
   if n == 0
     then id
-    else name ++ show n ++ ':' : id
+    else T.concat [name, T.pack (show n ++ ":"), id]
 
 -- | Gets the name of the current switch statement
 getSwitchName :: TState Id
 getSwitchName = do
   TransformMonad{switchScopes = sScopes} <- get
-  return $ "@Switch" ++ (show . head) sScopes
+  return . T.pack $ "@Switch" ++ (show . head) sScopes
 
 -- | Gets the name of the current function
 getFunctionName :: TState Id
@@ -570,7 +577,7 @@ scopedName id = do
   scope <- findName id
   case scope of
     Just s -> return $ renameScoped s id
-    _ -> return $ "@Error:" ++ id
+    _ -> return $ T.pack "@Error:" `T.append` id
 
 -- | Stores the given name to the current scope and returns its qualified name
 sgName :: Id -> TState Id
@@ -585,7 +592,7 @@ getNextAnon = do
 
 -- | Appends next anon number to the given name, see 'getNextAnon'
 appendNextAnon :: Id -> TState Id
-appendNextAnon id = (id ++) . (':' :) . show <$> getNextAnon
+appendNextAnon id = (id `T.append`) . T.pack . (':' :) . show <$> getNextAnon
 
 -- | Pushes the scopes of type variables (and aliases) and their classes
 enterCHMHead :: TState ()
@@ -717,7 +724,7 @@ enterScope id = do
   put state
     { nested =
         initScope
-          (if null id
+          (if T.null id
               then scopeName (head ns)
               else id)
           (n + 1)
@@ -736,7 +743,7 @@ leaveScope = do
 -- | Enters a new switch statement and implicitly enters a new 'Scope'
 enterSwitch :: TState ()
 enterSwitch = do
-  enterScope ""
+  enterScope T.empty
   state@TransformMonad{lastScope = n, switchScopes = sScopes} <- get
   put state
     { switchScopes = (n + 1) : sScopes
@@ -795,7 +802,7 @@ getTupleOp :: Int -> Type
 getTupleOp n =
   TCon
     ( Tycon
-        ("(" ++ replicate (n - 1) ',' ++ ")" ++ show n)
+        (T.pack $ "(" ++ replicate (n - 1) ',' ++ ")" ++ show n)
         (takeNKind n)
     )
 
@@ -825,22 +832,22 @@ getTuple n = do
       , builtIns = Map.insert translate (getTupleCon n) bIs
       }
     return translate
-  where translate = "@make_tuple" ++ show n
+  where translate = T.pack $ "@make_tuple" ++ show n
 
 -- | Creates a new name for the type class of the getter/setter of the member field
 memberClassName :: Id -> Id
-memberClassName id = "Has_" ++ id
+memberClassName = T.append (T.pack "Has_")
 
 -- | This has to be named so that it cannot collide with
 -- other user-defined functions
 memberGetterName :: Id -> Id
-memberGetterName id = ".get:" ++ id
+memberGetterName = T.append (T.pack ".get:")
 
 {- |
   Returns id of the given member's getter
 -}
 getMember :: Ident -> TState Id
-getMember id@(Ident sId _ _) = return $ memberGetterName sId
+getMember id@(Ident sId _ _) = return . memberGetterName $ T.pack sId
 
 {- |
   Registers a member getter for the given struct and its member
@@ -855,7 +862,7 @@ registerMember sId mId t = do
     , memberClasses = mClasses
     } <- get
   let
-    sVar = Tyvar "structVar" Star
+    sVar = Tyvar (T.pack "structVar") Star
     sTVar = TVar sVar
     mClassName = memberClassName mId
     sCon = TCon (Tycon sId Star)
@@ -894,7 +901,7 @@ registerCHMMember sId mId t = do
     mClassName = memberClassName mId
     tVars = TVar <$> head tVs
     sKind = takeNKind $ length tVars
-    sVar = Tyvar "structVar" sKind
+    sVar = Tyvar (T.pack "structVar") sKind
     sTVar = foldl TAp (TVar sVar) tVars
     sCon = foldl TAp (TCon (Tycon sId sKind)) tVars
     getterId = memberGetterName mId
@@ -950,7 +957,7 @@ getStructKind id = do
   case id `Map.lookup` structs of
     Just struct -> return (structKind struct)
     Nothing -> error $
-      "cannot find the requested struct `" ++ id ++ "`"
+      "cannot find the requested struct `" ++ T.unpack id ++ "`"
 
 -- | Makes a new entry in the class environment and in the 'TransformMonad'
 registerClass :: Id -> TState Bool
@@ -1002,7 +1009,7 @@ getMethodScheme cId mId = do
 mangleName :: Id -> Type -> TState Id
 mangleName id mType = do
   num <- getNextAnon
-  return $ id ++ '_' : show num  -- TODO
+  return . (id `T.append`) . T.pack $ '_' : show num  -- TODO
 
 {- |
   Adds a new instance of a method of the given class
@@ -1047,7 +1054,7 @@ class GetCName a where
   getCName :: a -> Id
 
 instance GetCName CFunDef where
-  getCName (CFunDef _ (CDeclr (Just (Ident name _ _)) _ _ _ _) _ _ _) = name
+  getCName (CFunDef _ (CDeclr (Just ident) _ _ _ _) _ _ _) = getCName ident
 
 instance GetCName CHMFunDef where
   getCName (CHMFunDef _ cFunDef _) = getCName cFunDef
@@ -1056,7 +1063,7 @@ instance GetCName CHMStructDef where
   getCName (CHMStructDef _ cStructUnion _) = getCName cStructUnion
 
 instance GetCName CStructUnion where
-  getCName (CStruct _ (Just (Ident name _ _)) _ _ _) = name
+  getCName (CStruct _ (Just ident) _ _ _) = getCName ident
 
 instance GetCName CExtDecl where
   getCName (CHMFDefExt chmFunDef) = getCName chmFunDef
@@ -1065,7 +1072,11 @@ instance GetCName CExtDecl where
   getCName (CDeclExt cFunDecl)    = getCName cFunDecl
 
 instance GetCName CDecl where
-  getCName (CDecl _ [(Just (CDeclr (Just (Ident name _ _)) (CFunDeclr{} : _) _ _ _), Nothing, Nothing)] _) = name
+  getCName (CDecl _ [(Just (CDeclr (Just ident) (CFunDeclr{} : _) _ _ _), Nothing, Nothing)] _) =
+    getCName ident
+
+instance GetCName Ident where
+  getCName (Ident name _ _) = T.pack name
 
 -- | gets data from 'CStructUnion's and derived types
 class GetCName a => GetSU a where

@@ -31,6 +31,8 @@ import Data.List (partition, (\\))
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 
+import qualified Data.ByteString.Char8 as T
+
 import Control.Monad
 import qualified Control.Monad.Fail as Fail
 
@@ -40,10 +42,10 @@ import Control.Applicative(Applicative(..))
 -- Id:		Identifiers
 -----------------------------------------------------------------------------
 
-type Id  = String
+type Id  = T.ByteString
 
 enumId  :: Int -> Id
-enumId n = "v" ++ show n
+enumId n = 'v' `T.cons` T.pack (show n)
 
 -----------------------------------------------------------------------------
 -- Kind:		Kinds
@@ -71,32 +73,50 @@ data Tycon = Tycon Id Kind
 instance Ord Tycon where
   compare (Tycon id1 _) (Tycon id2 _) = compare id1 id2
 
-tCharId   = "Char"
-tIntId    = "Int"
-tFloatId  = "Float"
-tDoubleId = "Double"
+tCharId   = T.pack "Char"
+tIntId    = T.pack "Int"
+tFloatId  = T.pack "Float"
+tDoubleId = T.pack "Double"
 
-tUnit    = TCon (Tycon "()" Star)
+tListId   = T.pack "[]"
+tArrowId  = T.pack "(->)"
+tTuple2Id = T.pack "(,)2"
+
+cNumId    = T.pack "Num"
+
+-- CHM additions
+tErrorId = T.pack "@Error"
+tVoidId = T.pack "Void"
+tShortId = T.pack "Short"
+tLongId = T.pack "Long"
+tLongSpecId = T.pack "LongSpec"
+tSignedId = T.pack "Signed"
+tUnsigId = T.pack "Unsig"
+tBoolId = T.pack "Bool"
+tComplexId = T.pack "Complex"
+tInt128Id = T.pack "Int128"
+
+tUnit    = TCon (Tycon (T.pack "()") Star)
 tChar    = TCon (Tycon tCharId Star)
 tInt     = TCon (Tycon tIntId Star)
 tFloat   = TCon (Tycon tFloatId Star)
 tDouble  = TCon (Tycon tDoubleId Star)
 
 -- CHM additions
-tError  = TCon (Tycon "@Error" Star)
-tVoid  = TCon (Tycon "Void" Star)
-tShort = TCon (Tycon "Short" Star)
-tLong = TCon (Tycon "Long" Star)
-tLongSpec = TCon (Tycon "LongSpec" (Kfun Star Star))
-tSigned = TCon (Tycon "Signed" Star)
-tUnsig = TCon (Tycon "Unsig" Star)
-tBool = TCon (Tycon "Bool" Star)
-tComplex = TCon (Tycon "Complex" Star)
-tInt128 = TCon (Tycon "Int128" Star)
+tError  = TCon (Tycon tErrorId Star)
+tVoid  = TCon (Tycon tVoidId Star)
+tShort = TCon (Tycon tShortId Star)
+tLong = TCon (Tycon tLongId Star)
+tLongSpec = TCon (Tycon  tLongSpecId(Kfun Star Star))
+tSigned = TCon (Tycon tSignedId Star)
+tUnsig = TCon (Tycon tUnsigId Star)
+tBool = TCon (Tycon tBoolId Star)
+tComplex = TCon (Tycon tComplexId Star)
+tInt128 = TCon (Tycon tInt128Id Star)
 
-tList    = TCon (Tycon "[]" (Kfun Star Star))
-tArrow   = TCon (Tycon "(->)" (Kfun Star (Kfun Star Star)))
-tTuple2  = TCon (Tycon "(,)2" (Kfun Star (Kfun Star Star)))
+tList    = TCon (Tycon tListId (Kfun Star Star))
+tArrow   = TCon (Tycon tArrowId (Kfun Star (Kfun Star Star)))
+tTuple2  = TCon (Tycon tTuple2Id (Kfun Star (Kfun Star Star)))
 
 tString    :: Type
 tString     = list tChar
@@ -358,7 +378,7 @@ instance Ord Assump where
   compare (id1 :>: _) (id2 :>: _) = compare id1 id2
 
 find :: Fail.MonadFail m => Id -> Map.Map Id Scheme -> m Scheme
-find i as = let errorMSG = fail ("unbound identifier: " ++ i)
+find i as = let errorMSG = fail ("unbound identifier: " ++ T.unpack i)
   in case i `Map.lookup` as of
     Just sc -> return sc
     Nothing -> errorMSG
@@ -444,7 +464,7 @@ data Literal = LitInt  Integer
 tiLit            :: Literal -> TI ([Pred],Type)
 tiLit (LitChar _) = return ([], tChar)
 tiLit (LitInt _)  = do v <- newTVar Star
-                       return ([IsIn "Num" v], v)
+                       return ([IsIn cNumId v], v)
 tiLit (LitStr _)  = return ([], tString)
 tiLit (LitFloat _)  = return ([], tFloat)  -- (CHM)
 tiLit LitVoid  = return ([], tVoid)  -- (CHM)
@@ -541,12 +561,12 @@ ambiguities         :: ClassEnv -> Set.Set Tyvar -> [Pred] -> [Ambiguity]
 ambiguities ce vs ps = [ (v, filter (elem v . tv) ps) | v <- Set.toList $ tv ps Set.\\ vs ]
 
 numClasses :: [Id]
-numClasses  = ["Num", "Integral", "Floating", "Fractional",
+numClasses  = T.pack <$> ["Num", "Integral", "Floating", "Fractional",
                "Real", "RealFloat", "RealFrac"]
 
 stdClasses :: [Id]
-stdClasses  = ["Eq", "Ord", "Show", "Read", "Bounded", "Enum", "Ix",
-               "Functor", "Monad", "MonadPlus"] ++ numClasses
+stdClasses  = (T.pack <$> ["Eq", "Ord", "Show", "Read", "Bounded", "Enum", "Ix",
+               "Functor", "Monad", "MonadPlus"]) ++ numClasses
 
 candidates           :: ClassEnv -> Ambiguity -> [Type]
 candidates ce (v, qs) = [ t' | let is = [ i | IsIn i t <- qs ]
@@ -619,7 +639,7 @@ tiImpls ce as bs = do ts <- sequence $ take (length bs) [newTVar Star]
                           fs      = tv (apply s as)
                           vss     = map tv ts'
                           gs      = Set.unions vss Set.\\ fs
-                      (ds,rs) <- split ce fs (foldr1 Set.intersection vss) ps'
+                      (ds,rs) <- split ce fs (foldl1 Set.intersection vss) ps'
                       if restricted bs then
                           let gs'  = gs Set.\\ tv rs
                               scs' = map (quantify gs' . ([]:=>)) ts'

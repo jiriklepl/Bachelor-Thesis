@@ -9,6 +9,8 @@ import qualified Data.Set as Set
 import qualified Data.Map as Map
 import Data.Foldable
 
+import qualified Data.ByteString.Char8 as T
+
 import TypingHaskellInHaskell hiding (modify)
 
 import Language.C (Pretty(..))
@@ -42,16 +44,16 @@ instance Magic CExtDecl where
     parse_ a
     enqueueExtDecl a
   magic a@(CFDefExt _) = do
-    instantiate a (Forall [] ([] :=> TCon (Tycon "@pointlessType" Star)))
+    instantiate a (Forall [] ([] :=> TCon (Tycon (T.pack "@pointlessType") Star)))
     parse_ a
     return ()
-  magic a@(CHMCDefExt (CHMCDef (Ident cName _ _) chmHead cExtDecls _)) = do
+  magic a@(CHMCDefExt (CHMCDef ident chmHead cExtDecls _)) = do
     a' <- parse a
     sequence_
       [ let
           fName = getCName cExtDecl
           fScheme = a' Map.! fName
-        in createClassPolyType cName fName fScheme cExtDecl
+        in createClassPolyType (getCName ident) fName fScheme cExtDecl
       | cExtDecl <- cExtDecls
       ]
 
