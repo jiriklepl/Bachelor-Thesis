@@ -2,6 +2,16 @@
 dist
 dist-newstyle
 
-.precompiled.c
-.assembly.S
-.main
+# precompiled program
+/.precompiled.c
+
+# generated assembly
+/.assembly.S
+/.opt_assembly.S
+
+# output program
+/.main
+/.opt_main
+
+# profiler output
+/*.prof
