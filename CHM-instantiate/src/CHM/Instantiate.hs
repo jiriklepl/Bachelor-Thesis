@@ -29,7 +29,7 @@ instance Magic CExtDecl where
     a' <- parse a
     let
       name = getCName a
-      Just (_ :>: scheme) = (name :>: toScheme tError) `Set.lookupLE` a'
+      Just scheme = name `Map.lookup` a'
     createPolyType name scheme a
   magic a@(CHMSDefExt (CHMStructDef (CHMHead chmIdents _ _) cStructUnion _)) = do
     parse_ a
@@ -47,12 +47,10 @@ instance Magic CExtDecl where
     return ()
   magic a@(CHMCDefExt (CHMCDef (Ident cName _ _) chmHead cExtDecls _)) = do
     a' <- parse a
-    let
-      assumpMap = foldl (\m (name :>: scheme) -> Map.insert name scheme m) Map.empty a'
     sequence_
       [ let
           fName = getCName cExtDecl
-          fScheme = assumpMap Map.! fName
+          fScheme = a' Map.! fName
         in createClassPolyType cName fName fScheme cExtDecl
       | cExtDecl <- cExtDecls
       ]

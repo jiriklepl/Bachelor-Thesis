@@ -31,6 +31,7 @@ import Debug.Trace
 import Control.Monad.State
 import Control.Monad((>=>), when)
 import qualified Data.Set as Set
+import qualified Data.Map as Map
 import Data.Maybe
 
 import TypingHaskellInHaskell
@@ -61,18 +62,18 @@ getTransformResult = fst . runTState . transform
   consisting of 'builtIns' and 'memberClasses' retrieved from the state
   and the given 'Assump's
 -}
-typeInfer :: Set.Set Assump -> Program -> TState (Set.Set Assump)
+typeInfer :: Map.Map Id Scheme -> Program -> TState (Map.Map Id Scheme)
 typeInfer assumps program = do
   TransformMonad{builtIns = bIs, memberClasses = mCs}  <- get
   case mCs initialEnv of
     Nothing -> error "Environment corrupted"
-    Just cEnv -> return $ tiProgram cEnv (bIs `Set.union` assumps) program
+    Just cEnv -> return $ tiProgram cEnv (bIs `Map.union` assumps) program
 
 {- |
   Runs thih on the given C construct after transforming it
   (using new state)
 -}
-runInfer :: Transform a => a -> Set.Set Assump
+runInfer :: Transform a => a -> Map.Map Id Scheme
 runInfer a =
   let
     (program, TransformMonad{memberClasses=mCs, builtIns=bIs}) =

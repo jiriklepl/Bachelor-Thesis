@@ -26,7 +26,8 @@
 
 module TypingHaskellInHaskell where
 
-import Data.List(partition, (\\))
+import Data.Foldable hiding (find)
+import Data.List (partition, (\\))
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 
@@ -153,9 +154,9 @@ instance Types a => Types [a] where
   apply s = map (apply s)
   tv      = Set.unions . map tv
 
-instance (Ord a, Types a) => Types (Set.Set a) where
-  apply s = Set.map (apply s)
-  tv      = foldl ( (. tv) . Set.union) Set.empty
+instance (Ord a, Types b) => Types (Map.Map a b) where
+  apply s = Map.map (apply s)
+  tv      = foldl' ( (. tv) . Set.union) Set.empty
 
 infixr 4 @@
 (@@)       :: Subst -> Subst -> Subst
@@ -356,10 +357,10 @@ instance Types Assump where
 instance Ord Assump where
   compare (id1 :>: _) (id2 :>: _) = compare id1 id2
 
-find :: Fail.MonadFail m => Id -> Set.Set Assump -> m Scheme
+find :: Fail.MonadFail m => Id -> Map.Map Id Scheme -> m Scheme
 find i as = let errorMSG = fail ("unbound identifier: " ++ i)
-  in case (i :>: Forall [] ([] :=> tError)) `Set.lookupLE` as of
-    Just (i' :>: sc) -> if i == i' then return sc else errorMSG
+  in case i `Map.lookup` as of
+    Just sc -> return sc
     Nothing -> errorMSG
 
 -----------------------------------------------------------------------------
@@ -427,7 +428,7 @@ instance Instantiate Pred where
 -- Infer:	Basic definitions for type inference
 -----------------------------------------------------------------------------
 
-type Infer e t = ClassEnv -> Set.Set Assump -> e -> TI ([Pred], t)
+type Infer e t = ClassEnv -> Map.Map Id Scheme -> e -> TI ([Pred], t)
 
 -----------------------------------------------------------------------------
 -- Lit:		Literals
@@ -456,23 +457,25 @@ data Pat        = PVar Id
                 | PCon Assump [Pat]
                 deriving(Show)
 
-tiPat :: Pat -> TI ([Pred], Set.Set Assump, Type)
+tiPat :: Pat -> TI ([Pred], Map.Map Id Scheme, Type)
 
 tiPat (PVar i) = do v <- newTVar Star
-                    return ([], Set.singleton $ i :>: toScheme v, v)
+                    return ([], Map.singleton i $ toScheme v, v)
 
 tiPat (PCon (i:>:sc) pats) = do (ps,as,ts) <- tiPats pats
                                 t'         <- newTVar Star
                                 (qs :=> t) <- freshInst sc
-                                unify t (foldr fn t' ts)
+                                unify t (foldr' fn t' ts)
                                 return (ps++qs, as, t')
 
-tiPats     :: [Pat] -> TI ([Pred], Set.Set Assump, [Type])
-tiPats pats = do psasts <- mapM tiPat pats
-                 let ps = concat [ ps' | (ps',_,_) <- psasts ]
-                     as = Set.unions [ as' | (_,as',_) <- psasts ]
-                     ts = [ t | (_,_,t) <- psasts ]
-                 return (ps, as, ts)
+tiPats     :: [Pat] -> TI ([Pred], Map.Map Id Scheme, [Type])
+tiPats pats = do
+  psasts <- mapM tiPat pats
+  let
+    ps = concat [ps' | (ps',_,_) <- psasts]
+    as = Map.unions [as' | (_,as',_) <- psasts]
+    ts = [t | (_,_,t) <- psasts]
+  return (ps, as, ts)
 
 -----------------------------------------------------------------------------
 
@@ -499,7 +502,7 @@ tiExpr ce as (Ap e f)         = do (ps,te) <- tiExpr ce as e
                                    unify (tf `fn` t) te
                                    return (ps ++ qs, t)
 tiExpr ce as (Let bg e)       = do (ps, as') <- tiBindGroup ce as bg
-                                   (qs, t)   <- tiExpr ce (as' `Set.union` as) e
+                                   (qs, t)   <- tiExpr ce (as' `Map.union` as) e
                                    return (ps ++ qs, t)
 
 tiExpr ce as (Lambda alt)          = tiAlt ce as alt
@@ -515,10 +518,10 @@ type Alt = ([Pat], Expr)
 
 tiAlt                :: Infer Alt Type
 tiAlt ce as (pats, e) = do (ps, as', ts) <- tiPats pats
-                           (qs,t)  <- tiExpr ce (as' `Set.union` as) e
-                           return (ps++qs, foldr fn t ts)
+                           (qs,t)  <- tiExpr ce (as' `Map.union` as) e
+                           return (ps++qs, foldr' fn t ts)
 
-tiAlts             :: ClassEnv -> Set.Set Assump -> [Alt] -> Type -> TI [Pred]
+tiAlts             :: ClassEnv -> Map.Map Id Scheme -> [Alt] -> Type -> TI [Pred]
 tiAlts ce as alts t = do psts <- mapM (tiAlt ce as) alts
                          mapM_ (unify t . snd) psts
                          return (concatMap fst psts)
@@ -572,7 +575,7 @@ defaultSubst    = withDefaults (\a b -> Map.fromList $ zip (map fst a) b)
 
 type Expl = (Id, Scheme, [Alt])
 
-tiExpl :: ClassEnv -> Set.Set Assump -> Expl -> TI [Pred]
+tiExpl :: ClassEnv -> Map.Map Id Scheme -> Expl -> TI [Pred]
 tiExpl ce as (i, sc, alts)
         = do (qs :=> t) <- freshInst sc
              ps         <- tiAlts ce as alts t
@@ -602,12 +605,12 @@ restricted   :: [Impl] -> Bool
 restricted = any simple
  where simple (i,alts) = any (null . fst) alts
 
-tiImpls         :: Infer [Impl] (Set.Set Assump)
+tiImpls         :: Infer [Impl] (Map.Map Id Scheme)
 tiImpls ce as bs = do ts <- sequence $ take (length bs) [newTVar Star]
-                      let zIs = Set.fromList . zipWith (:>:) is
+                      let zIs = Map.fromList . zip is
                           is    = map fst bs
                           scs   = map toScheme ts
-                          as'   = zIs scs `Set.union` as
+                          as'   = zIs scs `Map.union` as
                           altss = map snd bs
                       pss <- zipWithM (tiAlts ce as') altss ts
                       s   <- getSubst
@@ -629,18 +632,18 @@ tiImpls ce as bs = do ts <- sequence $ take (length bs) [newTVar Star]
 
 type BindGroup  = ([Expl], [[Impl]])
 
-tiBindGroup :: Infer BindGroup (Set.Set Assump)
+tiBindGroup :: Infer BindGroup (Map.Map Id Scheme)
 tiBindGroup ce as (es,iss) =
-  do let as' = Set.fromList [ v:>:sc | (v,sc,alts) <- es ]
-     (ps, as'') <- tiSeq tiImpls ce (as' `Set.union` as) iss
-     qss        <- mapM (tiExpl ce (as'' `Set.union` as' `Set.union` as)) es
-     return (ps++concat qss, as'' `Set.union` as')
+  do let as' = Map.fromList [ (v,sc) | (v,sc,alts) <- es ]
+     (ps, as'') <- tiSeq tiImpls ce (as' `Map.union` as) iss
+     qss        <- mapM (tiExpl ce (as'' `Map.union` as' `Map.union` as)) es
+     return (ps++concat qss, as'' `Map.union` as')
 
-tiSeq                  :: Infer bg (Set.Set Assump) -> Infer [bg] (Set.Set Assump)
-tiSeq ti ce as []       = return ([],Set.empty)
+tiSeq                  :: Infer bg (Map.Map Id Scheme) -> Infer [bg] (Map.Map Id Scheme)
+tiSeq ti ce as []       = return ([],Map.empty)
 tiSeq ti ce as (bs:bss) = do (ps,as')  <- ti ce as bs
-                             (qs,as'') <- tiSeq ti ce (as' `Set.union` as) bss
-                             return (ps ++ qs, as'' `Set.union` as')
+                             (qs,as'') <- tiSeq ti ce (as' `Map.union` as) bss
+                             return (ps ++ qs, as'' `Map.union` as')
 
 -----------------------------------------------------------------------------
 -- TIProg:	Type Inference for Whole Programs
@@ -648,7 +651,7 @@ tiSeq ti ce as (bs:bss) = do (ps,as')  <- ti ce as bs
 
 type Program = [BindGroup]
 
-tiProgram :: ClassEnv -> Set.Set Assump -> Program -> Set.Set Assump
+tiProgram :: ClassEnv -> Map.Map Id Scheme -> Program -> Map.Map Id Scheme
 tiProgram ce as bgs = runTI $
                       do (ps, as') <- tiSeq tiBindGroup ce as bgs
                          s         <- getSubst

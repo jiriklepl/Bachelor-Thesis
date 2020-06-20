@@ -213,7 +213,7 @@ data TransformMonad = TransformMonad
     -- ^ memory of created member accessors
   , memberClasses :: EnvTransformer
     -- ^ all classes and their instances
-  , builtIns :: Set.Set Assump
+  , builtIns :: Map.Map Id Scheme
     -- ^ all created symbols
   }
 
@@ -229,7 +229,7 @@ niceError =
 tPointer, tConst, tTuple3, tNULL :: Type
 
 tPointer = TCon (Tycon "@Pointer" (Kfun Star Star))
-tSize_t = tInt -- TODO: For siplicity's sake, in future implementations, change it
+tSize_t = tInt -- TODO: For simplicity's sake; in future implementations, change it
 tConst = TCon (Tycon "@Const" (Kfun Star Star))
 tTuple3 = TCon (Tycon "(,,)3" (Kfun Star (Kfun Star (Kfun Star Star))))
 tNULL = TCon (Tycon "@NULL" Star)
@@ -472,7 +472,7 @@ initTransformMonad =
         aaBFuncWithClasses cs = quantify (Set.fromList [aVar, bVar]) (cs :=> (aTVar `fn` aTVar `fn` tBool))
         -- | functions of the type '(a, b) -> Bool'
         t2abBFuncWithClasses cs = quantify (Set.fromList [aVar, bVar]) (cs :=> (tupleTypes [aTVar, bTVar] `fn` tBool))
-      in Set.fromList
+      in Map.fromList . map (\(id:>:sc) -> (id, sc)) $
         [ cNULL :>: toScheme (tPointer `TAp` tNULL)
         , addOpFunc :>: aaaFuncWithClasses [IsIn "Add" aTVar]
         , subOpFunc :>: aaaFuncWithClasses [IsIn "Sub" aTVar]
@@ -822,8 +822,7 @@ getTuple n = do
   else do
     put state
       { tuples = n `Set.insert` ts
-      , builtIns =
-        (translate :>: getTupleCon n) `Set.insert` bIs
+      , builtIns = Map.insert translate (getTupleCon n) bIs
       }
     return translate
   where translate = "@make_tuple" ++ show n
@@ -860,8 +859,10 @@ registerMember sId mId t = do
     sTVar = TVar sVar
     mClassName = memberClassName mId
     sCon = TCon (Tycon sId Star)
-    getter = memberGetterName mId :>:
-        quantify (Set.singleton sVar)
+    getterId = memberGetterName mId
+    getterScheme =
+      quantify
+        (Set.singleton sVar)
         ([IsIn mClassName sTVar] :=> (sTVar `fn` t))
   if mId `Set.member` cs then
     put state
@@ -873,7 +874,7 @@ registerMember sId mId t = do
       { memberClasses = mClasses
           <:> addClass mClassName []
           <:> addInst [] (IsIn mClassName sCon)
-      , builtIns = getter `Set.insert` bIs
+      , builtIns = Map.insert getterId getterScheme bIs
       , createdClasses = mId `Set.insert` cs
       }
 
@@ -896,7 +897,8 @@ registerCHMMember sId mId t = do
     sVar = Tyvar "structVar" sKind
     sTVar = foldl TAp (TVar sVar) tVars
     sCon = foldl TAp (TCon (Tycon sId sKind)) tVars
-    getter = memberGetterName mId :>:
+    getterId = memberGetterName mId
+    getterScheme =
       quantify
         (Set.fromList (sVar : head tVs))
         ((IsIn mClassName sTVar : head vCs) :=> (sTVar `fn` t'))
@@ -910,7 +912,7 @@ registerCHMMember sId mId t = do
       { memberClasses = mClasses
           <:> addClass mClassName []
           <:> addInst [] (IsIn mClassName sCon)
-      , builtIns = getter `Set.insert` bIs
+      , builtIns = Map.insert getterId getterScheme bIs
       , createdClasses = mId `Set.insert` cs
       }
 
