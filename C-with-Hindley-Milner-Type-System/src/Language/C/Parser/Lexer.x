@@ -226,6 +226,7 @@ L?\"($inchar|@charesc)*@ucn($inchar|@charesc|@ucn)*\" { token_fail "Universal ch
 "-"   { token_ 1 CTokMinus }
 "*"   { token_ 1 CTokStar }
 "/"   { token_ 1 CTokSlash }
+\\    { token_ 1 CTokBSlash }  -- CHM addition
 "%"   { token_ 1 CTokPercent }
 "&"   { token_ 1 CTokAmper }
 "<<"  { token_ 2 CTokShiftL }

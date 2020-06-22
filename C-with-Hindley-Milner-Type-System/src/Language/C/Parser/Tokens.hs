@@ -36,6 +36,7 @@ data CToken = CTokLParen   !PosLength            -- `('
             | CTokMinus    !PosLength            -- `-'
             | CTokStar     !PosLength            -- `*'
             | CTokSlash    !PosLength            -- `/'
+            | CTokBSlash    !PosLength            -- `/' (CHM addition)
             | CTokPercent  !PosLength            -- `%'
             | CTokAmper    !PosLength            -- `&'
             | CTokShiftL   !PosLength            -- `<<'
@@ -182,6 +183,7 @@ posLenOfTok (CTokPlus     pos  ) = pos
 posLenOfTok (CTokMinus    pos  ) = pos
 posLenOfTok (CTokStar     pos  ) = pos
 posLenOfTok (CTokSlash    pos  ) = pos
+posLenOfTok (CTokBSlash   pos  ) = pos  -- CHM addition
 posLenOfTok (CTokPercent  pos  ) = pos
 posLenOfTok (CTokAmper    pos  ) = pos
 posLenOfTok (CTokShiftL   pos  ) = pos
@@ -296,6 +298,7 @@ instance Show CToken where
   showsPrec _ (CTokMinus    _  ) = showString "-"
   showsPrec _ (CTokStar     _  ) = showString "*"
   showsPrec _ (CTokSlash    _  ) = showString "/"
+  showsPrec _ (CTokBSlash   _  ) = showString "\\"  -- CHM addition
   showsPrec _ (CTokPercent  _  ) = showString "%"
   showsPrec _ (CTokAmper    _  ) = showString "&"
   showsPrec _ (CTokShiftL   _  ) = showString "<<"

@@ -7,6 +7,7 @@ module CHM.TransformMonad
   , GetSU(..)
   , TypeComplexity (..)
   , TState
+  , PosData(..)
   , initTransformMonad
   , niceError
   , getClassMethods
@@ -159,13 +160,17 @@ initMethod s = Method
   , methodInstances = Set.empty
   }
 
-newtype Struct = Struct
+data Struct = Struct
   { structKind :: Kind
+  , structPos :: NodeInfo
   } deriving(Show)
 
 newtype UserClass = UserClass
   { methods :: Map.Map Id Method
   } deriving(Show)
+
+data PosData =
+  PosAnonData Int
 
 -- | Used mainly in lists of 'Method's
 type MethodNamed = (Id, Method)
@@ -213,6 +218,8 @@ data TransformMonad = TransformMonad
     -- ^ class constraints over variables in chm heads
   , createdClasses :: Set.Set Id
     -- ^ memory of created member accessors
+  , posData :: Map.Map NodeInfo PosData
+    -- ^ things to remember about some locations
   , memberClasses :: EnvTransformer
     -- ^ all classes and their instances
   , builtIns :: Map.Map Id Scheme
@@ -410,6 +417,7 @@ initTransformMonad =
     , typeVariables = [[]]
     , typeAliases = [Map.empty]
     , variableClasses = [[]]
+    , posData = Map.empty
     , memberClasses =
       -- all built-in classes (work in -- TODO)
       addClass (T.pack "Num") []
@@ -930,34 +938,37 @@ createParamsType [t] = t
 createParamsType ts = foldl TAp (getTupleOp $ length ts) ts
 
 -- | Makes a new entry for the given struct in the 'TransformMonad'
-registerStruct :: Id -> TState Bool
-registerStruct id = do
+registerStruct :: Id -> NodeInfo -> TState Bool
+registerStruct id nInfo = do
   state@TransformMonad{registeredStructs = rSs, typeVariables = tVs} <- get
-  if id `Map.member` rSs then
-    return False
-  else do
-    put state
-      { registeredStructs =
-          Map.insert
-            id
-            Struct
-              { structKind =
-                  if null tVs
-                    then Star
-                    else takeNKind (length $ head tVs)
-              }
-            rSs
-      }
-    return True
+  case id `Map.lookup` rSs of
+    Just struct@Struct{structPos = sInfo} ->
+      if sInfo == nInfo
+        then return False
+        else error $
+          niceError "struct redefinition" nInfo ++
+          '\n' : niceError "\tpreviously defined here" sInfo
+    Nothing -> do
+      put state
+        { registeredStructs =
+            Map.insert
+              id
+              Struct
+                { structKind =
+                    if null tVs
+                      then Star
+                      else takeNKind (length $ head tVs)
+                , structPos = nInfo
+                }
+              rSs
+        }
+      return True
 
 -- | returns the kind of a struct
-getStructKind :: Id -> TState Kind
+getStructKind :: Id -> TState (Maybe Kind)
 getStructKind id = do
   structs <- gets registeredStructs
-  case id `Map.lookup` structs of
-    Just struct -> return (structKind struct)
-    Nothing -> error $
-      "cannot find the requested struct `" ++ T.unpack id ++ "`"
+  return $ structKind <$> (id `Map.lookup` structs)
 
 -- | Makes a new entry in the class environment and in the 'TransformMonad'
 registerClass :: Id -> TState Bool
@@ -1104,5 +1115,5 @@ instance TypeComplexity Type where
   typeComplexity _ = 1
 
 instance TypeComplexity Scheme where
-  typeComplexity (Forall [] ([] :=> t)) =
+  typeComplexity (Forall [] (_ :=> t)) =
     typeComplexity t

@@ -36,7 +36,7 @@ import Data.Maybe
 
 import qualified Data.ByteString.Char8 as T
 
-import TypingHaskellInHaskell
+import TypingHaskellInHaskell hiding (modify)
 
 import Language.C.Data
 import Language.C.Data.Ident (Ident(..))
@@ -172,23 +172,31 @@ translateDeclSpecs (decl:decls) = case decl of
   CTypeSpec (CBoolType _) -> return tBool
   CTypeSpec (CComplexType _) -> return tComplex
   CTypeSpec (CInt128Type _) -> return tInt128
-  CTypeSpec (CSUType (CStruct _ (Just ident) Nothing _ _) _) -> do
+  CTypeSpec (CSUType (CStruct _ (Just ident) Nothing _ _) nInfo) -> do
     let name = getCName ident
-    kind <- getStructKind name
-    return $ TCon (Tycon name kind)
-  CTypeSpec (CSUType (CStruct _ (Just ident) (Just cDecls) _ _) _) -> do
+    mKind <- getStructKind name
+    case mKind of
+      Just kind -> return $ TCon (Tycon name kind)
+      Nothing -> return $ TCon (Tycon name Star)
+{-
+  On the above line `Star` is just a placeholder `Kind`, no `Kind` is
+  actually known yet, but this should happen only in contexts of
+  C declarations.
+
+  The following would make pure declaration not work:
+      Nothing -> error $ niceError
+        ("cannot find the requested struct `" ++ T.unpack name ++ "`")
+        nInfo
+-}
+  CTypeSpec (CSUType (CStruct _ (Just ident) (Just cDecls) _ nInfo) _) -> do
     let name = getCName ident
-    registered <- registerStruct name
-    registerStructMembers name cDecls
-    unless registered . error $
-      niceError "struct redefinition" (nodeInfo decl)
+    registered <- registerStruct name nInfo
+    when registered $ registerStructMembers name cDecls
     return (TCon (Tycon name Star))
-  CTypeSpec (CSUType (CStruct _ Nothing (Just cDecls) _ _) _ ) -> do
+  CTypeSpec (CSUType (CStruct _ Nothing (Just cDecls) _ nInfo) _ ) -> do
     name <- appendNextAnon (T.pack "@Struct")
-    registered <- registerStruct name
-    registerStructMembers name cDecls
-    unless registered . error $
-      niceError "struct redefinition" (nodeInfo decl)
+    registered <- registerStruct name nInfo
+    when registered $ registerStructMembers name cDecls
     return (TCon (Tycon name Star))
   CTypeSpec (CSUType (CStruct _ Nothing _ _ _) _ ) -> return tError  -- TODO
   CTypeSpec (CTypeDef ident _) -> do
@@ -208,7 +216,7 @@ translateDeclSpecs (decl:decls) = case decl of
   CFunSpec _ -> translateDeclSpecs decls
   CStorageSpec _ -> translateDeclSpecs decls
   CAlignSpec _ -> translateDeclSpecs decls
-  CHMAnonType _ -> TVar . flip Tyvar Star <$> appendNextAnon (T.pack "@Anon")
+  anon@CHMAnonType{} -> TVar . flip Tyvar Star <$> mangleAnonType anon
 
 translateDerivedDecl :: Type -> [CDerivedDeclr] -> TState Type
 translateDerivedDecl t [] = return t
@@ -780,9 +788,9 @@ instance Transform CHMHead where
     return []
 
 transformStructHead :: Id -> CHMHead -> TState ()
-transformStructHead name chmHead@(CHMHead types constraints a) = do
-    transform (CHMHead types [] a)
-    registered <- registerStruct name
+transformStructHead name chmHead@(CHMHead types constraints nInfo) = do
+    transform (CHMHead types [] nInfo)
+    registered <- registerStruct name nInfo
     unless registered . error $ niceError
       "Struct redefinition"
       (nodeInfo chmHead)
@@ -939,3 +947,13 @@ instance ReplaceAliasize Expr where
 
 instance ReplaceAliasize a => ReplaceAliasize [a] where
   replaceAliasize = traverse replaceAliasize
+
+mangleAnonType :: CDeclSpec -> TState Id
+mangleAnonType (CHMAnonType nInfo) = do
+  posMap <- gets posData
+  case nInfo `Map.lookup` posMap of
+    Just (PosAnonData i) -> return (T.pack ("@Anon" ++ show i))
+    Nothing -> do
+      anonNum <- getNextAnon
+      modify (\state -> state{posData=Map.insert nInfo (PosAnonData anonNum) posMap})
+      return . T.pack $ "@Anon" ++ show anonNum

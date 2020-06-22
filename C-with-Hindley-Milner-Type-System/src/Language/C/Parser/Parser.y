@@ -150,6 +150,7 @@ import Language.C.Syntax
 '-'		{ CTokMinus	_ }
 '*'		{ CTokStar	_ }
 '/'		{ CTokSlash	_ }
+'\\'		{ CTokBSlash	_ }  -- CHM addition
 '%'		{ CTokPercent	_ }
 '&'		{ CTokAmper	_ }
 "<<"		{ CTokShiftL	_ }
@@ -878,7 +879,8 @@ type_specifier :: { [CDeclSpec] }
 type_specifier
   : basic_type_specifier		{ reverse $1 }	-- Arithmetic or void
   | sue_type_specifier			{ reverse $1 }	-- Struct/Union/Enum
-  | typedef_type_specifier		{ reverse $1 }	-- Typedef
+  | typedef_type_specifier	{ reverse $1 }	-- Typedef
+  | '\\' '\\'               {% withNodeInfo $1 $ reverse . singleton . CHMAnonType }
 --  | "_Atomic" '(' type_name ')'                         -- _Atomic(type)
 --        {% withNodeInfo $1 $ \at -> [CTypeSpec (CAtomicType $3 at)] }
 
