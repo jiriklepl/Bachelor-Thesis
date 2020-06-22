@@ -20,13 +20,13 @@ opt_compile: .opt_main
 	cabal new-run -v0 CHM-instantiate > .precompiled.c
 
 .assembly.S: .precompiled.c
-	gcc -S -O0 -o .assembly.S .precompiled.c
+	gcc -c -S -O0 -o .assembly.S .precompiled.c
 
 .opt_assembly.S: .precompiled.c
-	gcc -S -O2 -o .opt_assembly.S .precompiled.c
+	gcc -c -S -O2 -o .opt_assembly.S .precompiled.c
 
 .main: .assembly.S
-	gcc -O0 -o .main .assembly.S
+	gcc -O0 -o .main .assembly.S stl.c
 
 .opt_main: .opt_assembly.S
-	gcc -O2 -o .main .opt_assembly.S
+	gcc -O2 -o .main .opt_assembly.S stl.c
