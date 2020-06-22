@@ -1,4 +1,25 @@
-void *NULL = (void*)0;
+#include <stdio.h>
+
+void __print_char(char);
+void __print_int(int);
+
+class Print<a> {
+    void print(a *);
+}
+
+instance Print<char> {
+    void print(char *a)
+    {
+        __print_char(*a);
+    }
+}
+
+instance Print<int> {
+    void print(int *a)
+    {
+        __print_int(*a);
+    }
+}
 
 extern void *malloc(int);
 extern void free(void *ptr);
