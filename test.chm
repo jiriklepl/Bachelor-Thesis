@@ -775,10 +775,13 @@ int f()
 	x = push(x, 4);
 	x = push(x, 2);
 	x = push(x, 3);
-	x = push(x, 4);
+	x = push(x, 'c');
 }
 
 int main()
 {
-	f();
+	int (*x)() = &f;
+	(*x)();
+	char i = 'c';
+	print(&i);
 }
