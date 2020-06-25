@@ -73,6 +73,7 @@ data Tycon = Tycon Id Kind
 instance Ord Tycon where
   compare (Tycon id1 _) (Tycon id2 _) = compare id1 id2
 
+tUnitId   = T.pack "()"
 tCharId   = T.pack "Char"
 tIntId    = T.pack "Int"
 tFloatId  = T.pack "Float"
@@ -96,7 +97,7 @@ tBoolId = T.pack "Bool"
 tComplexId = T.pack "Complex"
 tInt128Id = T.pack "Int128"
 
-tUnit    = TCon (Tycon (T.pack "()") Star)
+tUnit    = TCon (Tycon tUnitId Star)
 tChar    = TCon (Tycon tCharId Star)
 tInt     = TCon (Tycon tIntId Star)
 tFloat   = TCon (Tycon tFloatId Star)
@@ -180,7 +181,7 @@ instance (Ord a, Types b) => Types (Map.Map a b) where
 
 infixr 4 @@
 (@@)       :: Subst -> Subst -> Subst
-s1 @@ s2    = Map.map (apply s1) s2 `Map.union` s1
+s1 @@ s2    = apply s1 s2 `Map.union` s1
 
 merge      :: Fail.MonadFail m => Subst -> Subst -> m Subst
 merge s1 s2 = if agree then return (s1 `Map.union` s2) else fail "merge fails"
