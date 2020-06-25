@@ -4,10 +4,23 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "echo",
+            "label": "compile",
             "type": "shell",
             "command": "make compile",
             "problemMatcher": [],
+            "group": "test"
+        },
+        {
+            "label": "compile optimalized",
+            "type": "shell",
+            "command": "make opt_compile",
+            "problemMatcher": [],
+            "group": "test"
+        },
+        {
+            "label": "build",
+            "command": "make",
+            "args" : ["build"],
             "group": {
                 "kind": "build",
                 "isDefault": true
