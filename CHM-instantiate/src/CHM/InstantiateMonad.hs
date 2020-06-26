@@ -25,15 +25,15 @@ type IState = State InstantiateMonad
 
 -- | Remembers the main definition (or definitions if is classed) and list of instances
 data PolyType = PolyType
-  { pTypeDefinition :: CExtDecl
+  { pTypeDefinition  :: CExtDecl
     -- ^ The C definition of the PolyType
   , pTypeDefinitions :: Map.Map Type CExtDecl
     -- ^ Multiple definitions in case there are instanced definitions
-  , pTypeClass :: Maybe Id
+  , pTypeClass       :: Maybe Id
     -- ^ If it is a method, it remembers 'Just' the class, otherwise 'Nothing'
-  , pTypeScheme :: Scheme
+  , pTypeScheme      :: Scheme
     -- ^ Scheme of the template
-  , pTypeInstances  :: Set.Set Id
+  , pTypeInstances   :: Set.Set Id
     -- ^ Set of all instances
   }
   deriving (Show)
@@ -502,12 +502,11 @@ instantiate extFunDef scheme = do
     ]
   let
     funName = getCName extFunDef'
-    tVarMap = Map.unions
-      [ if let (f, s) = T.span (/= ':') name' in f == funName && s /= T.empty
-          then T.drop (T.length funName + 1) name' `Map.singleton` scheme'
-          else name' `Map.singleton` scheme'
-      | (name', scheme') <- Map.toList as
-      ]
+    tVarMap =
+      (\name' -> if let (f, s) = T.span (/= ':') name' in f == funName && s /= T.empty
+          then T.drop (T.length funName + 1) name'
+          else name'
+      ) `Map.mapKeys` as
     -- TODO: i cannot remember what
   extFunDef'' <- replaceTVars tVarMap extFunDef' >>= flip rewrite scheme
   pullPolyMaps
@@ -937,7 +936,7 @@ rewrite cExtDecl@(CHMSDefExt (CHMStructDef _ cStructUnion _)) scheme = do
   let
     name = getCName cStructUnion
     scheme' = T.tail $ mangle scheme
-    cStructUnion' = renameCDef (scheme') cStructUnion
+    cStructUnion' = renameCDef scheme' cStructUnion
     nInfo = nodeInfo cStructUnion'
   instantiateSUType cStructUnion scheme
   return . CDeclExt $ CDecl
@@ -1061,15 +1060,20 @@ builtinTypes = Map.fromList
   , (tDoubleId, T.pack "double")
   ]
 
+packTC = T.pack "TC"
+packTF = T.pack "TF"
+packTP = T.pack "TP"
+packTA = T.pack "TA"
+
 mangleType :: Type -> Id
 mangleType (TCon (Tycon id _)) = case id `Map.lookup` builtinTypes of
-  Nothing -> T.concat [T.pack "TC", T.pack $ show (T.length id), id]
+  Nothing -> T.concat [packTC, T.pack $ show (T.length id), id]
   Just cName -> cName
 mangleType t@(TAp (TAp (TCon (Tycon tArr _)) t1) t2)
   | tArr == tArrowId = let
       t1' = manglePars t1
       t2' = mangleType t2
-    in T.concat [T.pack "TF", T.pack $ show (T.length t1'), t1', T.pack $ show (T.length t2'), t2']
+    in T.concat [packTF, T.pack $ show (T.length t1'), t1', T.pack $ show (T.length t2'), t2']
   | otherwise = mangleTypeHelper t
 
 mangleType (TAp t1 t2) =
@@ -1077,11 +1081,11 @@ mangleType (TAp t1 t2) =
 mangleTypeHelper (TAp t1 t2)
   | t1 == tPointer = let
       t1' = mangleType t2
-    in T.concat [T.pack "TP", T.pack $ show (T.length t1'), t1']
+    in T.concat [packTP, T.pack $ show (T.length t1'), t1']
   | otherwise = let
       t1' = mangleType t1
       t2' = mangleType t2
-    in T.concat [T.pack "TA", T.pack $ show (T.length t1'), t1', T.pack $ show (T.length t2'), t2']
+    in T.concat [packTA, T.pack $ show (T.length t1'), t1', T.pack $ show (T.length t2'), t2']
 
 manglePars :: Type -> Id
 manglePars TCon{} = T.empty
@@ -1095,7 +1099,7 @@ class Mangle a where
   mangle :: a -> Id
 
 instance Mangle Type where
-  mangle t = T.pack "_" `T.append` mangleType t
+  mangle t = '_' `T.cons` mangleType t
 
 instance Mangle Scheme where
-  mangle s = T.pack "_" `T.append` mangleScheme s
+  mangle s = '_' `T.cons` mangleScheme s

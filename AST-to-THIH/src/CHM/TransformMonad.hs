@@ -169,7 +169,7 @@ newtype UserClass = UserClass
   { methods :: Map.Map Id Method
   } deriving(Show)
 
-data PosData =
+newtype PosData =
   PosAnonData Int
 
 -- | Used mainly in lists of 'Method's

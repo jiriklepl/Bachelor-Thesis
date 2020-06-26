@@ -276,8 +276,16 @@ extractParameters (decl:decls) = case decl of
 extractParameters [] = return []
 
 registerStructMembers :: Id -> [CDecl] -> TState ()
-registerStructMembers _ [] = return ()
-registerStructMembers id cDecls = do
+registerStructMembers =
+  registerStructMembersCommon registerMember
+
+registerCHMStructMembers :: Id -> [CDecl] -> TState ()
+registerCHMStructMembers =
+  registerStructMembersCommon registerCHMMember
+
+registerStructMembersCommon :: (Id -> Id -> Type -> TState()) -> Id -> [CDecl] -> TState ()
+registerStructMembersCommon _ _ [] = return ()
+registerStructMembersCommon registerMemberSpecial id cDecls = do
   let
     registerSingleCDecl (CDecl specs declrs a) =
       case declrs of
@@ -285,30 +293,12 @@ registerStructMembers id cDecls = do
           let mId = getCName ident
           pureType <- translateDeclSpecs specs
           type' <- translateDerivedDecl pureType derivedDecls
-          registerMember id mId type'
+          registerMemberSpecial id mId type'
           registerSingleCDecl (CDecl specs rest a)
         (Just (CDeclr (Just ident) derivedDecls _ _ _), Just _, Nothing):rest -> do
           let mId = getCName ident
           registerSingleCDecl (CDecl specs rest a)  -- TODO: this is probably error (but still recognized by c++ as kosher)
         [] -> return ()
-  sequence_ (registerSingleCDecl <$> cDecls)
-
-registerCHMStructMembers :: Id -> [CDecl] -> TState ()
-registerCHMStructMembers _ [] = return ()
-registerCHMStructMembers id cDecls = do
-  let
-    registerSingleCDecl (CDecl specs declrs a) =
-      case declrs of
-        (Just (CDeclr (Just ident) derivedDecls _ _ _), Nothing, Nothing):rest -> do
-          let mId = getCName ident
-          pureType <- translateDeclSpecs specs
-          type' <- translateDerivedDecl pureType derivedDecls
-          registerCHMMember id mId type'
-          registerSingleCDecl (CDecl specs rest a)
-        (Just (CDeclr (Just ident) derivedDecls _ _ _), Just _, Nothing):rest -> do
-          let mId = getCName ident
-          registerSingleCDecl (CDecl specs rest a)  -- TODO: this is probably error (but still recognized by c++ as kosher)
-        _ -> return ()
   sequence_ (registerSingleCDecl <$> cDecls)
 
 instance Transform a => Transform [a] where
