@@ -58,16 +58,16 @@ data Kind  = Star | Kfun Kind Kind
 -- Type:		Types
 -----------------------------------------------------------------------------
 
-data Type  = TVar Tyvar | TCon Tycon | TAp Type Type | TGen Int
+data Type  = TVar !Tyvar | TCon !Tycon | TAp !Type !Type | TGen !Int
              deriving (Eq, Show, Ord)
 
-data Tyvar = Tyvar Id Kind
+data Tyvar = Tyvar !Id Kind
              deriving (Eq, Show)
 
 instance Ord Tyvar where
   compare (Tyvar id1 _) (Tyvar id2 _) = compare id1 id2
 
-data Tycon = Tycon Id Kind
+data Tycon = Tycon !Id Kind
              deriving (Eq, Show)
 
 instance Ord Tycon where
@@ -223,10 +223,10 @@ match t1 t2                 = fail "types do not match"
 -- Pred:		Predicates
 -----------------------------------------------------------------------------
 
-data Qual t = [Pred] :=> t
+data Qual t = ![Pred] :=> !t
               deriving (Eq, Show)
 
-data Pred   = IsIn Id Type
+data Pred   = IsIn !Id Type
               deriving (Eq, Show)
 
 instance Types t => Types (Qual t) where
@@ -250,25 +250,28 @@ type Inst     = Qual Pred
 
 -----------------------------------------------------------------------------
 
-data ClassEnv = ClassEnv { classes  :: Id -> Maybe Class,
+data ClassEnv = ClassEnv { classes  :: Map.Map Id Class,
                            defaults :: [Type] }
 
 super     :: ClassEnv -> Id -> [Id]
-super ce i = case classes ce i of Just (is, its) -> is
+super ce i = case i `Map.lookup` classes ce of
+  Just (is, its) -> is
+  Nothing -> error "class not defined" -- TODO
 
 insts     :: ClassEnv -> Id -> [Inst]
-insts ce i = case classes ce i of Just (is, its) -> its
+insts ce i = case i `Map.lookup` classes ce of
+  Just (is, its) -> its
+  Nothing -> error "class not defined" -- TODO
 
 defined :: Maybe a -> Bool
-defined (Just x) = True
+defined Just{} = True
 defined Nothing  = False
 
 modify       :: ClassEnv -> Id -> Class -> ClassEnv
-modify ce i c = ce{classes = \j -> if i == j then Just c
-                                             else classes ce j}
+modify ce i c = ce{classes = Map.insert i c $ classes ce}
 
 initialEnv :: ClassEnv
-initialEnv  = ClassEnv { classes  = const $ fail "class not defined",
+initialEnv  = ClassEnv { classes  = mempty,
                          defaults = [tInt, tDouble] }
 
 type EnvTransformer = ClassEnv -> Maybe ClassEnv
@@ -280,13 +283,13 @@ infixr 5 <:>
 
 addClass                              :: Id -> [Id] -> EnvTransformer
 addClass i is ce
- | defined (classes ce i)              = fail "class already defined"
- | not (all (defined . classes ce) is) = fail "superclass not defined"
+ | defined (i `Map.lookup` classes ce) = fail "class already defined"
+ | not (all (defined . (`Map.lookup` classes ce)) is) = fail "superclass not defined"
  | otherwise                           = return (modify ce i (is, []))
 
 addInst                        :: [Pred] -> Pred -> EnvTransformer
 addInst ps p@(IsIn i _) ce
- | not (defined (classes ce i)) = fail "no class for instance"
+ | not (defined (i `Map.lookup` classes ce)) = fail "no class for instance"
  | any (overlap p) qs           = fail "overlapping instance"
  | otherwise                    = return (modify ce i c)
    where its = insts ce i
@@ -348,7 +351,7 @@ scEntail ce ps p = any ((p `elem`) . bySuper ce) ps
 -- Scheme:	Type schemes
 -----------------------------------------------------------------------------
 
-data Scheme = Forall [Kind] (Qual Type)
+data Scheme = Forall ![Kind] !(Qual Type)
               deriving (Eq, Show)
 
 instance Types Scheme where
@@ -451,10 +454,10 @@ type Infer e t = ClassEnv -> Map.Map Id Scheme -> e -> TI ([Pred], t)
 -- Lit:		Literals
 -----------------------------------------------------------------------------
 
-data Literal = LitInt  Integer
-             | LitChar Char
+data Literal = LitInt   Integer
+             | LitChar  Char
              | LitFloat String  -- (CHM) added like this to mirror the Language.C definition
-             | LitStr  String
+             | LitStr   String
              | LitVoid
              deriving(Show)
 
@@ -470,8 +473,8 @@ tiLit LitVoid  = return ([], tVoid)  -- (CHM)
 -- Pat:		Patterns
 -----------------------------------------------------------------------------
 
-data Pat        = PVar Id
-                | PCon Assump [Pat]
+data Pat        = PVar !Id
+                | PCon !Assump ![Pat]
                 deriving(Show)
 
 tiPat :: Pat -> TI ([Pred], Map.Map Id Scheme, Type)
@@ -496,13 +499,13 @@ tiPats pats = do
 
 -----------------------------------------------------------------------------
 
-data Expr = Var   Id
-          | Lit   Literal
-          | Const Assump
-          | Ap    Expr Expr
-          | Let   BindGroup Expr
-          | Lambda Alt
-          | LambdaScheme Scheme Alt
+data Expr = Var   !Id
+          | Lit   !Literal
+          | Const !Assump
+          | Ap    !Expr !Expr
+          | Let   !BindGroup !Expr
+          | Lambda !Alt
+          | LambdaScheme !Scheme !Alt
           deriving(Show)
 
 tiExpr                       :: Infer Expr Type
