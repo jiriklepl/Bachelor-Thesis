@@ -53,6 +53,24 @@ class Transform a where
   transform_ :: a -> TState ()
   transform_ = (>> return ()) . transform
 
+innerId = T.pack "@INNER_"
+structId = T.pack "@Struct"
+castId = T.pack "@Cast"
+declId = T.pack "@Decl"
+exprId = T.pack "@Expr"
+cstringId = T.pack "@CString"
+todoId = T.pack "@TODO"
+paramsId = T.pack "@Params"
+returnId = T.pack "@Return"
+caseId = T.pack "@Case"
+ifElseId = T.pack "@IfElse"
+ifId = T.pack "@If"
+whileId = T.pack "@While"
+forId = T.pack "@For:"
+forCondId = T.pack "@ForCond:"
+forIncId = T.pack "@ForInc:"
+anonId = T.pack "@Anon"
+
 {- |
   Just transforms the C construct into its
 -}
@@ -119,7 +137,7 @@ reassemble bindGroup@([(name, scheme, [(pats, Let (expls, impls) returnValue)])]
         tuple <- Var <$> getTuple (length pats')
         constrPars <- transformPars pats'
         return $ foldl Ap tuple constrPars : others
-      innerName = T.pack "@INNER_" <> eName
+      innerName = innerId <> eName
     bindGroup' <- reassemble ([(innerName, eScheme', [(PVar eName : pats, Let (rest, impls) returnValue)])], [])
     let ([(iName, iScheme, [iAlt])], []) = bindGroup'
     others <- transformPars pats
@@ -194,7 +212,7 @@ translateDeclSpecs (decl:decls) = case decl of
     when registered $ registerStructMembers name cDecls
     return (TCon (Tycon name Star))
   CTypeSpec (CSUType (CStruct _ Nothing (Just cDecls) _ nInfo) _ ) -> do
-    name <- appendNextAnon (T.pack "@Struct")
+    name <- appendNextAnon structId
     registered <- registerStruct name nInfo
     when registered $ registerStructMembers name cDecls
     return (TCon (Tycon name Star))
@@ -371,7 +389,7 @@ transformExpr cExpr = let
   CCast cDecl tExpr _ -> do
     cDecl' <- translateDecl cDecl
     tExpr' <- transformExpr tExpr
-    anonName <- appendNextAnon (T.pack "@Cast")
+    anonName <- appendNextAnon castId
     return $ ap2
       (Var castFunc)
       (Const (anonName :>: toScheme cDecl'))
@@ -386,14 +404,14 @@ transformExpr cExpr = let
     return $ Var sizeofFunc `Ap` sExpr'
   CSizeofType sDecl _ -> do
     sDecl' <- translateDecl sDecl
-    name <- appendNextAnon (T.pack "@Decl")
+    name <- appendNextAnon declId
     return $ Var sizeofFunc `Ap` Const (name :>: toScheme sDecl')
   CAlignofExpr sExpr _ -> do
     sExpr' <- transformExpr sExpr
     return $ Var alignofFunc `Ap` sExpr'
   CAlignofType sDecl _ -> do
     sDecl' <- translateDecl sDecl
-    name <- appendNextAnon (T.pack "@Decl")
+    name <- appendNextAnon declId
     return $ Var alignofFunc `Ap` Const (name :>: toScheme sDecl')
   -- TODO: CComplexReal
   CIndex aExpr iExpr _ -> do
@@ -453,7 +471,7 @@ transformExpr cExpr = let
 instance Transform CExpr where
   -- the top-most binding should be first recursively (in comparison that would be the binding of ==, then operands and then their child bindings)
   transform expr = do
-    anonName <- appendNextAnon (T.pack "@Expr")
+    anonName <- appendNextAnon exprId
     expr' <- transformExpr expr
     return [([],[[(anonName, [([],expr')])]])]  -- TODO
 
@@ -489,16 +507,16 @@ instance Transform CDecl where  -- TODO
 
 instance Transform CStrLit where
   transform (CStrLit (CString s _) _) = do
-    anonName <- appendNextAnon (T.pack "@CString")
+    anonName <- appendNextAnon cstringId
     return [([],[[(anonName, [([],Lit $ LitStr s)])]])]  -- TODO
 
 extractPar :: CDecl -> TState (Id, Type)
 extractPar (CDecl declSpecs [(Nothing, _, _)] _) = do
-  parName <- appendNextAnon (T.pack "@TODO")
+  parName <- appendNextAnon todoId -- TODO
   parType <- translateDeclSpecs declSpecs
   return (parName, parType)
 extractPar (CDecl declSpecs [(Just (CDeclr Nothing derived _ _ _), _, _)] _) = do
-  parName <- appendNextAnon (T.pack "@TODO")
+  parName <- appendNextAnon todoId -- TODO
   parType <- translateDeclSpecs declSpecs >>= flip translateDerivedDecl derived
   return (parName, parType)
 extractPar (CDecl declSpecs [(Just (CDeclr (Just ident) derived _ _ _), _, _)] _) = do
@@ -532,8 +550,8 @@ transformFunDef (CFunDef specs (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _
     pureType <- translateDeclSpecs specs
     fType <- translateDerivedDecl pureType derivedDecls
     (parsType, retType) <- splitType fType
-    paramsName <- sgName (T.pack "@Params")
-    returnName <- sgName (T.pack "@Return")
+    paramsName <- sgName paramsId
+    returnName <- sgName returnId
     pars <- typeSignatures
     stmt' <- transform stmt
     returns <- getFunctionReturns
@@ -620,13 +638,13 @@ instance Transform CStat where
     CLabel _ stmt _ _ -> transform stmt
     CCase cExpr stmt _ -> do
       switchName <- getSwitchName
-      anonName <- appendNextAnon (T.pack "@Case")
+      anonName <- appendNextAnon caseId
       cExpr' <- transformExpr cExpr
       stmt' <- transform stmt
       return $ ([],[[(anonName, [([],ap2 (Var caseFunc) (Var switchName) cExpr')])]]) : stmt'
     CCases lExpr rExpr stmt _ -> do  -- TODO: add checking for range-ness
       switchName <- getSwitchName
-      anonName <- appendNextAnon (T.pack "@Case")
+      anonName <- appendNextAnon caseId
       lExpr' <- transformExpr lExpr
       rExpr' <- transformExpr rExpr
       stmt' <- transform stmt
@@ -641,13 +659,13 @@ instance Transform CStat where
       leaveScope
       return block'
     CIf expr tStmt (Just fStmt) _ -> do
-      anonName <- appendNextAnon (T.pack "@IfElse")
+      anonName <- appendNextAnon ifElseId
       expr' <- transformExpr expr
       tStmt' <- transform tStmt
       fStmt' <- transform fStmt
       return $ ([], [[(anonName, [([], expr')])]]) : (tStmt' <> fStmt')  -- TODO
     CIf expr tStmt Nothing _ -> do
-      anonName <- appendNextAnon (T.pack "@If")
+      anonName <- appendNextAnon ifId
       expr' <- transformExpr expr
       tStmt' <- transform tStmt
       return $ ([],[[(anonName, [([],expr')])]]) : tStmt'  -- TODO
@@ -659,18 +677,18 @@ instance Transform CStat where
       leaveSwitch
       return $ ([],[[(name, [([],expr')])]]) : stmt'
     CWhile expr stmt _ _ -> do
-      anonName <- appendNextAnon (T.pack "@While")
+      anonName <- appendNextAnon whileId
       expr' <- transformExpr expr
       stmt' <- transform stmt
       return $ ([],[[(anonName, [([],expr')])]]) : stmt'  -- TODO
     CFor (Left expr1) expr2 expr3 stmt a -> do
       anonNum <- T.pack . show <$> getNextAnon
       expr1' <- traverse transformExpr expr1
-      let expr1'' = (\e -> (T.pack "@For:" <> anonNum, [([], e)])) <$>  expr1'
+      let expr1'' = (\e -> (forId <> anonNum, [([], e)])) <$>  expr1'
       expr2' <- traverse transformExpr expr2  -- TODO
-      let expr2'' = (\e -> (T.pack "@ForCond:" <> anonNum, [([], e)])) <$> expr2'
+      let expr2'' = (\e -> (forCondId <> anonNum, [([], e)])) <$> expr2'
       expr3' <- traverse transformExpr expr3
-      let expr3'' = (\e -> (T.pack "@ForInc:" <> anonNum, [([], e)])) <$> expr3'
+      let expr3'' = (\e -> (forIncId <> anonNum, [([], e)])) <$> expr3'
       stmt' <- transform stmt
       return $
         ( []
@@ -682,9 +700,9 @@ instance Transform CStat where
       decl' <- transform decl
       let [([(name, scheme, alts)], _)] = decl'
       expr2' <- traverse transformExpr expr2  -- TODO
-      let expr2'' = (\e -> (T.pack "@ForCond:" <> anonNum, [([], e)])) <$> expr2'
+      let expr2'' = (\e -> (forCondId <> anonNum, [([], e)])) <$> expr2'
       expr3' <- traverse transformExpr expr3
-      let expr3'' = (\e -> (T.pack "@ForInc:" <> anonNum, [([], e)])) <$> expr3'
+      let expr3'' = (\e -> (forIncId <> anonNum, [([], e)])) <$> expr3'
       stmt' <- transform stmt
       leaveScope
       return $
@@ -942,8 +960,8 @@ mangleAnonType :: CDeclSpec -> TState Id
 mangleAnonType (CHMAnonType nInfo) = do
   posMap <- gets posData
   case nInfo `Map.lookup` posMap of
-    Just (PosAnonData i) -> return (T.pack ("@Anon" <> show i))
+    Just (PosAnonData i) -> return $ anonId <> T.pack (show i)
     Nothing -> do
       anonNum <- getNextAnon
       modify (\state -> state{posData=Map.insert nInfo (PosAnonData anonNum) posMap})
-      return . T.pack $ "@Anon" <> show anonNum
+      return $ anonId <> T.pack (show anonNum)
