@@ -24,6 +24,7 @@ module CHM.Transform
   , flattenProgram
   , storeName
   , niceError
+  , mangleAnonType
   ) where
 
 import Debug.Trace

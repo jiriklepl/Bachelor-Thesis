@@ -552,6 +552,12 @@ instance ReplaceTVars CDeclSpec where
     CTypeSpec <$> replaceTVars as cTypeSpec
   replaceTVars as (CAlignSpec cAlignSpec) =
     CAlignSpec <$> replaceTVars as cAlignSpec
+  replaceTVars as anon@(CHMAnonType nInfo) = do
+    mScheme <- (as Map.!?) <$> runTState (mangleAnonType anon)
+    monoType <- case mScheme of
+      Just scheme -> schemeToMono scheme nInfo
+      _ -> return $ T.pack "not yet supported"
+    return . CTypeSpec $ CTypeDef (makeIdent monoType nInfo) nInfo
   replaceTVars _ a = return a
 
 class IsDetType a where
