@@ -1,1 +1,0 @@
-extern const char *const sys_errlist[];

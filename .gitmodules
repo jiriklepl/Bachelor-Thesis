@@ -1,0 +1,3 @@
+[submodule "C-with-Hindley-Milner-Type-System"]
+	path = C-with-Hindley-Milner-Type-System
+	url = https://github.com/jiriklepl/language-chm.git
