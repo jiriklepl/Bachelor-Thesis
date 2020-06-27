@@ -45,7 +45,7 @@ import Control.Applicative (Applicative(..))
 type Id  = T.ByteString
 
 enumId  :: Int -> Id
-enumId n = 'v' `T.cons` T.pack (show n)
+enumId n = T.pack $ 'v' : show n
 
 -----------------------------------------------------------------------------
 -- Kind:		Kinds
@@ -423,7 +423,7 @@ extSubst s' = TI (\s n -> (s' @@ s, n, ()))
 
 newTVar    :: Kind -> TI Type
 newTVar k   = TI (\s n -> let v = Tyvar (enumId n) k
-                          in  (s, n+1, TVar v))
+                          in  (s, n + 1, TVar v))
 
 freshInst               :: Scheme -> TI (Qual Type)
 freshInst (Forall ks qt) = do ts <- newTVar `mapM` ks
