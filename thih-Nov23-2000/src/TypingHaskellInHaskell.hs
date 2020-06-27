@@ -583,10 +583,10 @@ withDefaults f ce vs ps
             tss = candidates ce <$> vps
 
 defaultedPreds :: Fail.MonadFail m => ClassEnv -> Set.Set Tyvar -> [Pred] -> m [Pred]
-defaultedPreds  = withDefaults (const . concatMap snd)
+defaultedPreds  = withDefaults $ const . concatMap snd
 
 defaultSubst   :: Fail.MonadFail m => ClassEnv -> Set.Set Tyvar -> [Pred] -> m Subst
-defaultSubst    = withDefaults (\a b -> Map.fromList $ zip (fst <$> a) b)
+defaultSubst    = withDefaults $ (Map.fromList .) . zip . (fst <$>)
 
 -----------------------------------------------------------------------------
 
@@ -652,8 +652,9 @@ type BindGroup  = ([Expl], [[Impl]])
 tiBindGroup :: Infer BindGroup (Map.Map Id Scheme)
 tiBindGroup ce as (es, iss) =
   do let as' = Map.fromList [ (v, sc) | (v, sc, alts) <- es ]
-     (ps, as'') <- tiSeq tiImpls ce (as' `Map.union` as) iss
-     qss        <- tiExpl ce (as'' `Map.union` as' `Map.union` as) `mapM` es
+         as_ = as' `Map.union` as
+     (ps, as'') <- tiSeq tiImpls ce as_ iss
+     qss        <- tiExpl ce (as'' `Map.union` as_) `mapM` es
      return (ps++concat qss, as'' `Map.union` as')
 
 tiSeq                  :: Infer bg (Map.Map Id Scheme) -> Infer [bg] (Map.Map Id Scheme)
