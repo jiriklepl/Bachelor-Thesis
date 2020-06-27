@@ -136,7 +136,7 @@ initScope :: Id -> Int -> Scope
 initScope name id = Scope
   { scopeName = name
   , scopeId = id
-  , scopeVars = Set.empty
+  , scopeVars = mempty
   }
 
 -- | Initialize a new 'Scope'
@@ -144,7 +144,7 @@ initGlobalScope :: Scope
 initGlobalScope = Scope
   { scopeName = T.pack "global"
   , scopeId = 0
-  , scopeVars = Set.empty
+  , scopeVars = mempty
   }
 
 -- | Remembers the method's 'Scheme' and a set of 'Type's of its instances
@@ -157,7 +157,7 @@ data Method = Method
 initMethod :: Scheme -> Method
 initMethod s = Method
   { methodScheme = s
-  , methodInstances = Set.empty
+  , methodInstances = mempty
   }
 
 data Struct = Struct
@@ -182,7 +182,7 @@ getClassMethods = Map.toList . methods
 -- | Initializes a new 'UserClass'
 initUserClass :: UserClass
 initUserClass = UserClass
-  { methods = Map.empty
+  { methods = mempty
   }
 
 -- | Contains all side effects of parsing the C AST to its thih representation
@@ -405,19 +405,19 @@ initTransformMonad =
     aTVar = TVar aVar
     bTVar = TVar bVar
   in TransformMonad
-    { tuples = Set.empty
-    , createdClasses = Set.empty
+    { tuples = mempty
+    , createdClasses = mempty
     , nested = [initGlobalScope]
     , lastScope = 0
-    , registeredStructs = Map.empty
+    , registeredStructs = mempty
     , switchScopes = []
     , functionScopes = []
     , anonymousCounter = 0
-    , userClasses = Map.empty
+    , userClasses = mempty
     , typeVariables = [[]]
-    , typeAliases = [Map.empty]
+    , typeAliases = [mempty]
     , variableClasses = [[]]
-    , posData = Map.empty
+    , posData = mempty
     , memberClasses =
       -- all built-in classes (work in -- TODO)
       addClass (T.pack "Num") []
@@ -538,13 +538,13 @@ renameScoped :: Scope -> Id -> Id
 renameScoped Scope{scopeName = name, scopeId = n} id =
   if n == 0
     then id
-    else T.concat [name, T.pack (show n ++ ":"), id]
+    else T.concat [name, T.pack (show n <> ":"), id]
 
 -- | Gets the name of the current switch statement
 getSwitchName :: TState Id
 getSwitchName = do
   TransformMonad{switchScopes = sScopes} <- get
-  return . T.pack $ "@Switch" ++ (show . head) sScopes
+  return . T.pack $ "@Switch" <> (show . head) sScopes
 
 -- | Gets the name of the current function
 getFunctionName :: TState Id
@@ -585,7 +585,7 @@ scopedName id = do
   scope <- findName id
   case scope of
     Just s -> return $ renameScoped s id
-    _ -> return $ T.pack "@Error:" `T.append` id
+    _ -> return $ T.pack "@Error:" <> id
 
 -- | Stores the given name to the current scope and returns its qualified name
 sgName :: Id -> TState Id
@@ -600,7 +600,7 @@ getNextAnon = do
 
 -- | Appends next anon number to the given name, see 'getNextAnon'
 appendNextAnon :: Id -> TState Id
-appendNextAnon id = (id `T.append`) . T.pack . (':' :) . show <$> getNextAnon
+appendNextAnon id = (id <>) . T.pack . (':' :) . show <$> getNextAnon
 
 -- | Pushes the scopes of type variables (and aliases) and their classes
 enterCHMHead :: TState ()
@@ -613,7 +613,7 @@ enterCHMHead = do
   put state
     { variableClasses = [] : vCs
     , typeVariables = [] : tVs
-    , typeAliases = Map.empty : tAs
+    , typeAliases = mempty : tAs
     }
 
 -- | adds the given type variable to the current chmHead scope
@@ -659,7 +659,7 @@ leaveCHMHead = do
 -- | Takes a 'Type' and then -- TODO: god I am tired for this
 filterTypes :: Type -> (Set.Set Tyvar, Set.Set Id) -> (Set.Set Tyvar, Set.Set Id)
 filterTypes t accumulator@(tSet, idSet)
-  | idSet == Set.empty = accumulator
+  | idSet == mempty = accumulator
   | otherwise = case t of
     TAp t1 t2 -> filterTypes t2 . filterTypes t1 $ accumulator
     TVar tv@(Tyvar id _) -> if id `Set.member` idSet
@@ -688,7 +688,7 @@ filterClasses acc@(tVars, preds, outPreds) =
     ([], _) -> acc
     (preds', preds'') ->
       let tVars' = foldr ($) tVars [addTypesFromType t | IsIn _ t <- preds']
-      in filterClasses (tVars', preds'', preds' ++ outPreds)
+      in filterClasses (tVars', preds'', preds' <> outPreds)
 
 -- | Replaces aliases created in the last chm head by real type variables
 replaceAliases :: Type -> TState Type
@@ -714,7 +714,7 @@ chmScheme t = do
   t' <- replaceAliases t
   let
     tVars = Set.fromList [id | Tyvar id _ <- head tVs]
-    (types, _) = filterTypes t' (Set.empty, tVars)
+    (types, _) = filterTypes t' (mempty, tVars)
     (types', _, classes) = filterClasses (types, head vCs, [])
   return $ quantify types' $ classes :=> t'
 {-
@@ -751,7 +751,7 @@ leaveScope = do
 -- | Enters a new switch statement and implicitly enters a new 'Scope'
 enterSwitch :: TState ()
 enterSwitch = do
-  enterScope T.empty
+  enterScope mempty
   state@TransformMonad{lastScope = n, switchScopes = sScopes} <- get
   put state
     { switchScopes = (n + 1) : sScopes
@@ -810,7 +810,7 @@ getTupleOp :: Int -> Type
 getTupleOp n =
   TCon
     ( Tycon
-        (T.pack $ "(" ++ replicate (n - 1) ',' ++ ")" ++ show n)
+        ('(' `T.cons` T.replicate (n - 1) ',' <> (')' `T.cons` T.pack (show n)))
         (takeNKind n)
     )
 
@@ -840,7 +840,7 @@ getTuple n = do
       , builtIns = Map.insert translate (getTupleCon n) bIs
       }
     return translate
-  where translate = T.pack $ "@make_tuple" ++ show n
+  where translate = T.pack $ "@make_tuple" <> show n
 
 -- | Creates a new name for the type class of the getter/setter of the member field
 memberClassName :: Id -> Id
@@ -946,8 +946,8 @@ registerStruct id nInfo = do
       if sInfo == nInfo
         then return False
         else error $
-          niceError "struct redefinition" nInfo ++
-          '\n' : niceError "\tpreviously defined here" sInfo
+          niceError "struct redefinition" nInfo <>
+          ('\n' : niceError "\tpreviously defined here" sInfo)
     Nothing -> do
       put state
         { registeredStructs =
@@ -1020,7 +1020,7 @@ getMethodScheme cId mId = do
 mangleName :: Id -> Type -> TState Id
 mangleName id mType = do
   num <- getNextAnon
-  return . (id `T.append`) . T.pack $ '_' : show num  -- TODO
+  return . (id <>) . T.pack $ '_' : show num  -- TODO
 
 {- |
   Adds a new instance of a method of the given class

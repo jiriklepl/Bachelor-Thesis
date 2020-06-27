@@ -69,7 +69,7 @@ typeInfer assumps program = do
   TransformMonad{builtIns = bIs, memberClasses = mCs}  <- get
   case mCs initialEnv of
     Nothing -> error "Environment corrupted"
-    Just cEnv -> return $ tiProgram cEnv (bIs `Map.union` assumps) program
+    Just cEnv -> return $ tiProgram cEnv (bIs <> assumps) program
 
 {- |
   Runs thih on the given C construct after transforming it
@@ -90,7 +90,7 @@ flattenProgram :: Program -> BindGroup
 flattenProgram ((expls, impls) : rest) =
   let
     (restExpls, restImpls) = flattenProgram rest
-  in (expls ++ restExpls, impls ++ restImpls)
+  in (expls <> restExpls, impls <> restImpls)
 flattenProgram [] = ([],[])
 
 {- |
@@ -119,7 +119,7 @@ reassemble bindGroup@([(name, scheme, [(pats, Let (expls, impls) returnValue)])]
         tuple <- Var <$> getTuple (length pats')
         constrPars <- transformPars pats'
         return $ foldl Ap tuple constrPars : others
-      innerName = T.pack "@INNER_" `T.append` eName
+      innerName = T.pack "@INNER_" <> eName
     bindGroup' <- reassemble ([(innerName, eScheme', [(PVar eName : pats, Let (rest, impls) returnValue)])], [])
     let ([(iName, iScheme, [iAlt])], []) = bindGroup'
     others <- transformPars pats
@@ -185,7 +185,7 @@ translateDeclSpecs (decl:decls) = case decl of
 
   The following would make pure declaration not work:
       Nothing -> error $ niceError
-        ("cannot find the requested struct `" ++ T.unpack name ++ "`")
+        ("cannot find the requested struct `" <> T.unpack name <> "`")
         nInfo
 -}
   CTypeSpec (CSUType (CStruct _ (Just ident) (Just cDecls) _ nInfo) _) -> do
@@ -613,7 +613,7 @@ instance TransformCHMFunDef CHMFunDef where
     aliases <- ((\(i :>: sc) -> (T.concat [name, T.singleton ':', i], sc, [])) <$>) <$> getAliases chmConstrs
     leaveCHMHead
     leaveFunction
-    return [funDef', (parExpls ++ aliases, [])]
+    return [funDef', (parExpls <> aliases, [])]
 
 instance Transform CStat where
   transform cStat = case cStat of
@@ -636,7 +636,7 @@ instance Transform CStat where
     CExpr Nothing _ -> return []
     CCompound _ [] _ -> return []
     CCompound _ block _ -> do
-      enterScope T.empty
+      enterScope mempty
       block' <- transform block
       leaveScope
       return block'
@@ -645,7 +645,7 @@ instance Transform CStat where
       expr' <- transformExpr expr
       tStmt' <- transform tStmt
       fStmt' <- transform fStmt
-      return $ ([],[[(anonName, [([],expr')])]]) : (tStmt' ++ fStmt')  -- TODO
+      return $ ([], [[(anonName, [([], expr')])]]) : (tStmt' <> fStmt')  -- TODO
     CIf expr tStmt Nothing _ -> do
       anonName <- appendNextAnon (T.pack "@If")
       expr' <- transformExpr expr
@@ -666,11 +666,11 @@ instance Transform CStat where
     CFor (Left expr1) expr2 expr3 stmt a -> do
       anonNum <- T.pack . show <$> getNextAnon
       expr1' <- traverse transformExpr expr1
-      let expr1'' = (\e -> (T.pack "@For:" `T.append` anonNum, [([], e)])) <$>  expr1'
+      let expr1'' = (\e -> (T.pack "@For:" <> anonNum, [([], e)])) <$>  expr1'
       expr2' <- traverse transformExpr expr2  -- TODO
-      let expr2'' = (\e -> (T.pack "@ForCond:" `T.append` anonNum, [([], e)])) <$> expr2'
+      let expr2'' = (\e -> (T.pack "@ForCond:" <> anonNum, [([], e)])) <$> expr2'
       expr3' <- traverse transformExpr expr3
-      let expr3'' = (\e -> (T.pack "@ForInc:" `T.append` anonNum, [([], e)])) <$> expr3'
+      let expr3'' = (\e -> (T.pack "@ForInc:" <> anonNum, [([], e)])) <$> expr3'
       stmt' <- transform stmt
       return $
         ( []
@@ -678,13 +678,13 @@ instance Transform CStat where
         ) : stmt'
     CFor (Right decl) expr2 expr3 stmt a -> do
       anonNum <- T.pack . show <$> getNextAnon
-      enterScope T.empty
+      enterScope mempty
       decl' <- transform decl
       let [([(name, scheme, alts)], _)] = decl'
       expr2' <- traverse transformExpr expr2  -- TODO
-      let expr2'' = (\e -> (T.pack "@ForCond:" `T.append` anonNum, [([], e)])) <$> expr2'
+      let expr2'' = (\e -> (T.pack "@ForCond:" <> anonNum, [([], e)])) <$> expr2'
       expr3' <- traverse transformExpr expr3
-      let expr3'' = (\e -> (T.pack "@ForInc:" `T.append` anonNum, [([], e)])) <$> expr3'
+      let expr3'' = (\e -> (T.pack "@ForInc:" <> anonNum, [([], e)])) <$> expr3'
       stmt' <- transform stmt
       leaveScope
       return $
@@ -717,14 +717,14 @@ fixKinds t = do
         (id, kind) = getAp t1
       in (id, Kfun Star kind)
     getAp (TVar (Tyvar id _)) = (id, Star)
-    getAp _ = (T.empty, Star)
+    getAp _ = (mempty, Star)
     ap = getAp t
   state@TransformMonad
     { typeVariables = tVs
     } <- get
   let
     fix ts@(first@(Tyvar id1 kind1) : others) new@(id2, kind2)
-      | id2 == T.empty = ts
+      | id2 == mempty = ts
       | id1 == id2 = Tyvar id1 kind2 : others -- TODO
       | otherwise = first : fix others new
     fix [] _ = []
@@ -733,7 +733,7 @@ fixKinds t = do
     }
   let
     putAp t new@(id, kind)
-      | id == T.empty = t
+      | id == mempty = t
       | otherwise = case t of
         (TAp t1 t2) -> TAp (putAp t1 new) t2
         (TVar (Tyvar _ _)) -> TVar $ Tyvar id kind
@@ -817,7 +817,7 @@ declareClassContents id cExtDecls = do
       transform cDecl >>= traverse translateDeclaration
     classDeclare c = error . niceError onlyPureMsg $ nodeInfo c
   if registered then concat <$> traverse classDeclare cExtDecls
-  else error $ "Class " ++ T.unpack id ++ " redefined"
+  else error $ "Class " <> T.unpack id <> " redefined"
 
 instance Transform CHMCDef where
   transform (CHMCDef ident chmHead cExtDecls _) = do
@@ -942,8 +942,8 @@ mangleAnonType :: CDeclSpec -> TState Id
 mangleAnonType (CHMAnonType nInfo) = do
   posMap <- gets posData
   case nInfo `Map.lookup` posMap of
-    Just (PosAnonData i) -> return (T.pack ("@Anon" ++ show i))
+    Just (PosAnonData i) -> return (T.pack ("@Anon" <> show i))
     Nothing -> do
       anonNum <- getNextAnon
       modify (\state -> state{posData=Map.insert nInfo (PosAnonData anonNum) posMap})
-      return . T.pack $ "@Anon" ++ show anonNum
+      return . T.pack $ "@Anon" <> show anonNum

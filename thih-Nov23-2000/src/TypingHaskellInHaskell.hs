@@ -151,7 +151,7 @@ instance HasKind Type where
 type Subst  = Map.Map Tyvar Type
 
 nullSubst  :: Subst
-nullSubst   = Map.empty
+nullSubst   = mempty
 
 (+->)      :: Tyvar -> Type -> Subst
 u +-> t     = Map.singleton u t
@@ -168,8 +168,8 @@ instance Types Type where
   apply s t         = t
 
   tv (TVar u)  = Set.singleton u
-  tv (TAp l r) = tv l `Set.union` tv r
-  tv t         = Set.empty
+  tv (TAp l r) = tv l <> tv r
+  tv t         = mempty
 
 instance Types a => Types [a] where
   apply s = (apply s <$>)
@@ -177,14 +177,14 @@ instance Types a => Types [a] where
 
 instance (Ord a, Types b) => Types (Map.Map a b) where
   apply s = (apply s <$>)
-  tv      = foldl' ( (. tv) . Set.union) Set.empty
+  tv      = foldl' ( (. tv) . (<>)) mempty
 
 infixr 4 @@
 (@@)       :: Subst -> Subst -> Subst
-s1 @@ s2    = apply s1 s2 `Map.union` s1
+s1 @@ s2    = apply s1 s2 <> s1
 
 merge      :: Fail.MonadFail m => Subst -> Subst -> m Subst
-merge s1 s2 = if agree then return (s1 `Map.union` s2) else fail "merge fails"
+merge s1 s2 = if agree then return (s1 <> s2) else fail "merge fails"
  where agree = all (\v -> apply s1 (TVar v) == apply s2 (TVar v))
                    (Map.keysSet s1 `Set.intersection` Map.keysSet s2)
 
@@ -202,11 +202,11 @@ mgu (TVar u) t        = varBind u t
 mgu t (TVar u)        = varBind u t
 mgu (TCon tc1) (TCon tc2)
            | tc1 == tc2 = return nullSubst
-mgu t1 t2             = fail $ "types `" ++ show t1 ++ "` and `" ++ show t2 ++ "` do not unify"
+mgu t1 t2             = fail $ "types `" <> show t1 <> "` and `" <> show t2 <> "` do not unify"
 
 varBind u t | t == TVar u      = return nullSubst
             | u `elem` tv t    = fail "occurs check fails"
-            | kind u /= kind t = fail $ "kinds of `" ++ show u ++ "` and `" ++ show t ++ "` do not match"
+            | kind u /= kind t = fail $ "kinds of `" <> show u <> "` and `" <> show t <> "` do not match"
             | otherwise        = return (u +-> t)
 
 match :: Fail.MonadFail m => Type -> Type -> m Subst
@@ -231,7 +231,7 @@ data Pred   = IsIn Id Type
 
 instance Types t => Types (Qual t) where
   apply s (ps :=> t) = apply s ps :=> apply s t
-  tv (ps :=> t)      = tv ps `Set.union` tv t
+  tv (ps :=> t)      = tv ps <> tv t
 
 instance Types Pred where
   apply s (IsIn i t) = IsIn i (apply s t)
@@ -334,7 +334,7 @@ toHnf ce p | inHnf p   = return [p]
 simplify   :: ClassEnv -> [Pred] -> [Pred]
 simplify ce = loop []
  where loop rs []                            = rs
-       loop rs (p:ps) | entail ce (rs++ps) p = loop rs ps
+       loop rs (p:ps) | entail ce (rs <> ps) p = loop rs ps
                       | otherwise            = loop (p:rs) ps
 
 reduce      :: Fail.MonadFail m => ClassEnv -> [Pred] -> m [Pred]
@@ -378,7 +378,7 @@ instance Types Assump where
 
 find :: Fail.MonadFail m => Id -> Map.Map Id Scheme -> m Scheme
 find i as = maybe errorMSG return $ i `Map.lookup` as
-  where errorMSG = fail $ "unbound identifier: " ++ T.unpack i
+  where errorMSG = fail $ "unbound identifier: " <> T.unpack i
 
 -----------------------------------------------------------------------------
 -- TIMonad:	Type inference monad
@@ -483,7 +483,7 @@ tiPat (PCon (i:>:sc) pats) = do (ps, as, ts) <- tiPats pats
                                 t'         <- newTVar Star
                                 (qs :=> t) <- freshInst sc
                                 unify t (foldr' fn t' ts)
-                                return (ps++qs, as, t')
+                                return (ps <> qs, as, t')
 
 tiPats     :: [Pat] -> TI ([Pred], Map.Map Id Scheme, [Type])
 tiPats pats = do
@@ -517,16 +517,16 @@ tiExpr ce as (Ap e f)         = do (ps, te) <- tiExpr ce as e
                                    (qs, tf) <- tiExpr ce as f
                                    t       <- newTVar Star
                                    unify (tf `fn` t) te
-                                   return (ps ++ qs, t)
+                                   return (ps <> qs, t)
 tiExpr ce as (Let bg e)       = do (ps, as') <- tiBindGroup ce as bg
-                                   (qs, t)   <- tiExpr ce (as' `Map.union` as) e
-                                   return (ps ++ qs, t)
+                                   (qs, t)   <- tiExpr ce (as' <> as) e
+                                   return (ps <> qs, t)
 
 tiExpr ce as (Lambda alt)          = tiAlt ce as alt
 tiExpr ce as (LambdaScheme sc alt) = do (qs :=> te) <- freshInst sc
                                         (ps, tf) <- tiAlt ce as alt
                                         unify te tf
-                                        return (ps ++ qs, te)
+                                        return (ps <> qs, te)
 
 
 -----------------------------------------------------------------------------
@@ -535,8 +535,8 @@ type Alt = ([Pat], Expr)
 
 tiAlt                :: Infer Alt Type
 tiAlt ce as (pats, e) = do (ps, as', ts) <- tiPats pats
-                           (qs, t)  <- tiExpr ce (as' `Map.union` as) e
-                           return (ps ++ qs, foldr' fn t ts)
+                           (qs, t)  <- tiExpr ce (as' <> as) e
+                           return (ps <> qs, foldr' fn t ts)
 
 tiAlts             :: ClassEnv -> Map.Map Id Scheme -> [Alt] -> Type -> TI [Pred]
 tiAlts ce as alts t = do psts <- tiAlt ce as `mapM` alts
@@ -549,7 +549,7 @@ split :: Fail.MonadFail m => ClassEnv -> Set.Set Tyvar -> Set.Set Tyvar -> [Pred
                       -> m ([Pred], [Pred])
 split ce fs gs ps = do ps' <- reduce ce ps
                        let (ds, rs) = partition (all (`elem` fs) . tv) ps'
-                       rs' <- defaultedPreds ce (fs `Set.union` gs) rs
+                       rs' <- defaultedPreds ce (fs <> gs) rs
                        return (ds, rs \\ rs')
 
 type Ambiguity       = (Tyvar, [Pred])
@@ -563,7 +563,7 @@ numClasses  = T.pack <$> ["Num", "Integral", "Floating", "Fractional",
 
 stdClasses :: [Id]
 stdClasses  = (T.pack <$> ["Eq", "Ord", "Show", "Read", "Bounded", "Enum", "Ix",
-               "Functor", "Monad", "MonadPlus"]) ++ numClasses
+               "Functor", "Monad", "MonadPlus"]) <> numClasses
 
 candidates           :: ClassEnv -> Ambiguity -> [Type]
 candidates ce (v, qs) = [ t' | let is = [ i | IsIn i t <- qs ]
@@ -606,9 +606,9 @@ tiExpl ce as (i, sc, alts)
              (ds, rs)    <- split ce fs gs ps'
              if sc /= sc' then
                  fail $
-                    "signature `" ++ show sc ++
-                    "` of `" ++ show i ++
-                    "` incompatible with `" ++ show sc' ++ "`"
+                    "signature `" <> show sc <>
+                    "` of `" <> show i <>
+                    "` incompatible with `" <> show sc' <> "`"
                else if not (null rs) then
                  fail "context too weak"
                else
@@ -627,7 +627,7 @@ tiImpls ce as bs = do ts <- replicateM (length bs) (newTVar Star)
                       let zIs = Map.fromList . zip is
                           is    = fst <$> bs
                           scs   = toScheme <$> ts
-                          as'   = zIs scs `Map.union` as
+                          as'   = zIs scs <> as
                           altss = snd <$> bs
                       pss <- zipWithM (tiAlts ce as') altss ts
                       s   <- getSubst
@@ -640,7 +640,7 @@ tiImpls ce as bs = do ts <- replicateM (length bs) (newTVar Star)
                       if restricted bs then
                           let gs'  = gs Set.\\ tv rs
                               scs' = quantify gs' . ([]:=>) <$> ts'
-                          in return (ds ++ rs, zIs scs')
+                          in return (ds <> rs, zIs scs')
                         else
                           let scs' = quantify gs . (rs:=>) <$> ts'
                           in return (ds, zIs scs')
@@ -652,16 +652,16 @@ type BindGroup  = ([Expl], [[Impl]])
 tiBindGroup :: Infer BindGroup (Map.Map Id Scheme)
 tiBindGroup ce as (es, iss) =
   do let as' = Map.fromList [ (v, sc) | (v, sc, alts) <- es ]
-         as_ = as' `Map.union` as
+         as_ = as' <> as
      (ps, as'') <- tiSeq tiImpls ce as_ iss
-     qss        <- tiExpl ce (as'' `Map.union` as_) `mapM` es
-     return (ps++concat qss, as'' `Map.union` as')
+     qss        <- tiExpl ce (as'' <> as_) `mapM` es
+     return (ps <> concat qss, as'' <> as')
 
 tiSeq                  :: Infer bg (Map.Map Id Scheme) -> Infer [bg] (Map.Map Id Scheme)
-tiSeq ti ce as []       = return ([], Map.empty)
+tiSeq ti ce as []       = return ([], mempty)
 tiSeq ti ce as (bs:bss) = do (ps, as')  <- ti ce as bs
-                             (qs, as'') <- tiSeq ti ce (as' `Map.union` as) bss
-                             return (ps ++ qs, as'' `Map.union` as')
+                             (qs, as'') <- tiSeq ti ce (as' <> as) bss
+                             return (ps <> qs, as'' <> as')
 
 -----------------------------------------------------------------------------
 -- TIProg:	Type Inference for Whole Programs
@@ -674,7 +674,7 @@ tiProgram ce as bgs = runTI $
                       do (ps, as') <- tiSeq tiBindGroup ce as bgs
                          s         <- getSubst
                          rs        <- reduce ce (apply s ps)
-                         s'        <- defaultSubst ce Set.empty rs
+                         s'        <- defaultSubst ce mempty rs
                          return (apply (s' @@ s) as')
 
 -----------------------------------------------------------------------------

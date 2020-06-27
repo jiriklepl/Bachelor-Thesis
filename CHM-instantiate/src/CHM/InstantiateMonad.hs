@@ -56,10 +56,10 @@ data InstantiateMonad = InstantiateMonad
 initPolyType :: Scheme -> CExtDecl -> PolyType
 initPolyType scheme def = PolyType
   { pTypeDefinition = def
-  , pTypeDefinitions = Map.empty
+  , pTypeDefinitions = mempty
   , pTypeClass = Nothing
   , pTypeScheme = scheme
-  , pTypeInstances = Set.empty
+  , pTypeInstances = mempty
   }
 
 initClassPolyType :: Id -> Scheme -> CExtDecl -> PolyType
@@ -68,22 +68,22 @@ initClassPolyType cName fScheme fDef =
 
 initInstantiateMonad :: InstantiateMonad
 initInstantiateMonad = InstantiateMonad
-  { parsedAssumps    = Map.empty
+  { parsedAssumps    = mempty
   , transformState   = initTransformMonad
   , lastScopeCopy    = 0
-  , polyTypes        = Map.empty
-  , polyStructUnions = Map.empty
-  , polyEnums        = Map.empty
-  , schemeInstances  = Set.empty
+  , polyTypes        = mempty
+  , polyStructUnions = mempty
+  , polyEnums        = mempty
+  , schemeInstances  = mempty
   , polyAnonNumber   = 0
   , polyMaps         = []
-  , cProgram         = Seq.empty
+  , cProgram         = mempty
   }
 
 dUnderScore = T.pack "__" :: Id
 
 pushPolyMaps, pullPolyMaps :: IState ()
-pushPolyMaps = modify (\state -> state{polyMaps = Map.empty : polyMaps state})
+pushPolyMaps = modify (\state -> state{polyMaps = mempty : polyMaps state})
 pullPolyMaps = modify (\state -> state{polyMaps = tail $ polyMaps state})
 
 enqueueExtDecl :: CExtDecl -> IState ()
@@ -157,7 +157,7 @@ polyAnonRename :: Id -> IState Id
 polyAnonRename id = do
   pAN <- gets polyAnonNumber
   modify (\state -> state{polyAnonNumber = pAN + 1})
-  return $ id `T.append` T.pack (show pAN)
+  return $ id <> T.pack (show pAN)
 
 addPolyTypeInstance :: Id -> Id -> IState ()
 addPolyTypeInstance pId iId = do
@@ -503,7 +503,7 @@ instantiate extFunDef scheme = do
   let
     funName = getCName extFunDef'
     tVarMap =
-      (\name' -> if let (f, s) = T.span (/= ':') name' in f == funName && s /= T.empty
+      (\name' -> if let (f, s) = T.span (/= ':') name' in f == funName && s /= mempty
           then T.drop (T.length funName + 1) name'
           else name'
       ) `Map.mapKeys` as
@@ -976,7 +976,7 @@ parseReSchemedVirtual scheme cExtDecl bindGroup = do
           let [([(name, polyScheme, alts)], []), (parExpls, [])] = cExtDecl'
           typeInfer pAs
             [ bindGroup
-            , ( parExpls ++ [ (T.concat [dUnderScore, name, mangle scheme]
+            , ( parExpls <> [ (T.concat [dUnderScore, name, mangle scheme]
                   , scheme
                   , alts
                   )
@@ -990,14 +990,14 @@ parseReSchemedVirtual scheme cExtDecl bindGroup = do
             name = getCName cExtDecl
             sKind = takeNKind $ length tVars
             tVarNames =
-              [ name `T.append` (':' `T.cons` getCName tVar)
+              [ name <> (':' `T.cons` getCName tVar)
               | tVar <- tVars
               ]
             enScopeType set (TAp t1 t2) =
               enScopeType set t1 `TAp` enScopeType set t2
             enScopeType set t@(TVar (Tyvar id kind)) =
               if id `Set.member` set
-                then TVar (Tyvar (name `T.append` (':' `T.cons` id)) kind)
+                then TVar (Tyvar (name <> (':' `T.cons` id)) kind)
                 else t
             enScopeType _ t = t
             tVars' =
@@ -1009,12 +1009,12 @@ parseReSchemedVirtual scheme cExtDecl bindGroup = do
           _ <- transform chmHead
           aliases <-
             ((\(i :>: Forall [] ([] :=> t)) ->
-              (name `T.append` (':' `T.cons` i), toScheme $ enScopeType (Set.fromList $ getCName <$> tVars) t, [])) <$>) <$> getAliases chmConstrs
+              (name <> (':' `T.cons` i), toScheme $ enScopeType (Set.fromList $ getCName <$> tVars) t, [])) <$>) <$> getAliases chmConstrs
           let
           leaveCHMHead
           typeInfer pAs
             [ bindGroup
-            , ( parExpls ++ aliases ++ [ ( mangle scheme
+            , ( parExpls <> aliases <> [ ( mangle scheme
                   , scheme
                   , [([], Const (name :>: toScheme sType))]
                   )
@@ -1042,7 +1042,7 @@ parse a = do
   let (as, tS') = runState (transform a >>= typeInfer pAs) tS
   put state
     { transformState = tS'
-    , parsedAssumps = as `Map.union` pAs
+    , parsedAssumps = as <> pAs
     }
   return as
 
@@ -1088,12 +1088,12 @@ mangleTypeHelper (TAp t1 t2)
     in T.concat [packTA, T.pack $ show (T.length t1'), t1', T.pack $ show (T.length t2'), t2']
 
 manglePars :: Type -> Id
-manglePars TCon{} = T.empty
+manglePars TCon{} = mempty
 manglePars (TAp t1 t2) =
   let
     t1' = manglePars t1
     t2' = mangleType t2
-  in t1' `T.append` t2'
+  in t1' <> t2'
 
 class Mangle a where
   mangle :: a -> Id
