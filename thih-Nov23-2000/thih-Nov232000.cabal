@@ -22,7 +22,7 @@ library
   build-depends:     base >= 4.12 && < 5,
                      bytestring >= 0.10 && < 1,
                      containers >= 0.6 && < 1
-  hs-source-dirs:    src
+  hs-source-dirs:    .
   exposed-modules:   TypingHaskellInHaskell
   -- other-modules:
   -- other-extensions:
