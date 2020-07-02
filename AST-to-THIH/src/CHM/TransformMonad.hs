@@ -5,7 +5,7 @@ module CHM.TransformMonad
   , TransformMonad(..)
   , GetCName(..)
   , GetSU(..)
-  , TypeComplexity (..)
+  , TypeDepth (..)
   , TState
   , PosData(..)
   , initTransformMonad
@@ -129,6 +129,7 @@ data Scope = Scope
   , scopeVars :: Set.Set Id
   } deriving(Show)
 
+-- | Used to represent return expressions of functions
 type ReturnExpr = Expr
 
 -- | Initialize a new 'Scope'
@@ -160,13 +161,21 @@ initMethod s = Method
   , methodInstances = mempty
   }
 
+{- |
+  Stores the kind and the position of a defined struct,
+  kinds tell us how many type variables they take,
+  position is stored for checking duplications and for
+  debugging purposes
+-}
 data Struct = Struct
   { structKind :: Kind
   , structPos :: NodeInfo
   } deriving(Show)
 
+-- | Stores data for user-defined classes
 newtype UserClass = UserClass
   { methods :: Map.Map Id Method
+    -- ^ A Map of all methods in a class
   } deriving(Show)
 
 newtype PosData =
@@ -234,19 +243,6 @@ type TState = State TransformMonad
 niceError :: String -> NodeInfo -> String
 niceError =
   (show .) . mkErrorInfo LevelError
-
-tPointerId = T.pack "@Pointer"
-tConstId = T.pack "@Const"
-tTuple3Id = T.pack "(,,)3"
-tNULLId = T.pack "@NULL"
-
-tPointer, tConst, tTuple3, tNULL :: Type
-
-tPointer = TCon (Tycon tPointerId (Kfun Star Star))
-tSize_t = tInt -- TODO: For simplicity's sake; in future implementations, change it
-tConst = TCon (Tycon tConstId (Kfun Star Star))
-tTuple3 = TCon (Tycon tTuple3Id (Kfun Star (Kfun Star (Kfun Star Star))))
-tNULL = TCon (Tycon tNULLId Star)
 
 -- pointer reference & dereference functions
 -- | thih representation of the unary & operator
@@ -1105,15 +1101,15 @@ instance GetSU CHMStructDef where
 instance GetSU CStructUnion where
   getSUType (CStruct tag _ _ _ _) = tag
 
+-- | Returns the depth of a type, depth is equal to the depth of the longest branch in the tree representation of the type.
+class TypeDepth a where
+  typeDepth :: a -> Int
 
-class TypeComplexity a where
-  typeComplexity :: a -> Int
+instance TypeDepth Type where
+  typeDepth (TAp t1 t2) =
+    1 + max (typeDepth t1) (typeDepth t2)
+  typeDepth _ = 1
 
-instance TypeComplexity Type where
-  typeComplexity (TAp t1 t2) =
-    1 + max (typeComplexity t1) (typeComplexity t2)
-  typeComplexity _ = 1
-
-instance TypeComplexity Scheme where
-  typeComplexity (Forall [] (_ :=> t)) =
-    typeComplexity t
+instance TypeDepth Scheme where
+  typeDepth (Forall [] (_ :=> t)) =
+    typeDepth t
