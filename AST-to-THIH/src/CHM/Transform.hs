@@ -6,8 +6,7 @@ module CHM.Transform
   , TransformMonad (..)
   , GetCName(..)
   , GetSU(..)
-  , TypeComplexity (..)
-  , tPointer
+  , TypeDepth (..)
   , runInfer
   , initTransformMonad
   , createParamsType
@@ -605,7 +604,13 @@ instance TransformCHMFunDef CExtDecl where
     transformCHMFunDef chmFunDef
 
 class GetAliases a where
+  {- |
+    Returns all type aliases as a list of assumptions
+    where the variables represent the alias and their
+    respective type schemes the types they represent.
+  -}
   getAliases :: a -> TState [Assump]
+  -- | Returns the names all type aliases defined in a chmHead
   getAliasNames :: a -> [Id]
 
 instance GetAliases CHMConstr where
@@ -957,6 +962,11 @@ instance ReplaceAliasize Expr where
 instance ReplaceAliasize a => ReplaceAliasize [a] where
   replaceAliasize = traverse replaceAliasize
 
+{- |
+  Returns an Id representing a certain anonymous type
+  in the code, it returns the same Id for the same anonymous
+  type if requested multiple times.
+-}
 mangleAnonType :: CDeclSpec -> TState Id
 mangleAnonType (CHMAnonType nInfo) = do
   posMap <- gets posData

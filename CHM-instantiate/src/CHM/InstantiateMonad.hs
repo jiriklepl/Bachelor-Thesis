@@ -464,7 +464,7 @@ instance
 
 instantiate :: CExtDecl -> Scheme -> IState ()
 instantiate extFunDef scheme = do
-  when (typeComplexity scheme > 500) . error $
+  when (typeDepth scheme > 500) . error $
     niceError
       "Type too complex, detected possible instantiation of an infinite type"
       (nodeInfo extFunDef)
