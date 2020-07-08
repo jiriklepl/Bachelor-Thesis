@@ -47,20 +47,35 @@ instance Magic CExtDecl where
     instantiate a (Forall [] ([] :=> TCon (Tycon (T.pack "@pointlessType") Star)))
     parse_ a
     return ()
-  magic a@(CHMCDefExt (CHMCDef ident chmHead cExtDecls _)) = do
+  magic a@(CHMCDefExt cDef) = do
     a' <- parse a
+    let
+      cExtDecls = case cDef of
+        CHMCDef _ _ cExtDecls' _ -> cExtDecls'
+        CHMCDefParams _ _ _ cExtDecls' _ -> cExtDecls'
     sequence_
       [ let
           fName = getCName cExtDecl
           fScheme = a' Map.! fName
-        in createClassPolyType (getCName ident) fName fScheme cExtDecl
+        in createClassPolyType (getCName cDef) fName fScheme cExtDecl
       | cExtDecl <- cExtDecls
       ]
 
-  -- TODO: CHMIDefHead
-  magic a@(CHMIDefExt (CHMIDef iName (CHMParams chmTypes _) cExtDecls _)) = do
+  -- TODO: CHMIDefHead not fully functional
+  magic a@(CHMIDefExt chmIDef) = do
     a' <- parse a
-    parType <- runTState $ createParamsType <$> traverse transformCHMType chmTypes
+    tState <- gets transformState
+    let
+      (parTypeAction, cExtDecls) = case chmIDef of
+        CHMIDef iName (CHMParams chmTypes _) cExtDecls' _ ->
+          (createParamsType <$> traverse transformCHMType chmTypes, cExtDecls')
+        CHMIDefHead iName chmHead (CHMParams chmTypes _) cExtDecls' _ ->
+          ( do
+              enterCHMHead
+              _ <- transform chmHead
+              createParamsType <$> traverse transformCHMType chmTypes
+          , cExtDecls')
+      (parType, _) = runState parTypeAction tState
     sequence_
       [ let
           fName = getCName cExtDecl

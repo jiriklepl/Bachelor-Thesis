@@ -824,9 +824,12 @@ instance Transform CHMStructDef where
   adds an entry for each declaration to the transform monad
   (as we have to remember them when making instances of the class)
 -}
-declareClassContents :: Id -> [CExtDecl] -> TState [Expl]
-declareClassContents id cExtDecls = do
-  registered <- registerClass id
+declareClassContents :: Id -> Maybe CHMParams -> [CExtDecl] -> TState [Expl]
+declareClassContents id mParams cExtDecls = do
+  mPType <- case mParams of
+    Just (CHMParams chmTypes _) -> return <$> (traverse transformCHMType chmTypes >>= replaceAliases . createParamsType)
+    Nothing -> return Nothing
+  registered <- registerClass id mPType
   let
     onlyPureMsg = "Currently only pure declarations allowed here"
     classDeclare (CDeclExt cDecl) = do
@@ -844,10 +847,17 @@ declareClassContents id cExtDecls = do
   else error $ "Class " <> T.unpack id <> " redefined"
 
 instance Transform CHMCDef where
+  transform (CHMCDefParams ident chmHead chmParams cExtDecls _) = do
+    enterCHMHead
+    chmHead' <- transform chmHead
+    expls <- declareClassContents (getCName ident) (Just chmParams) cExtDecls
+    leaveCHMHead
+    return [(expls, [])]
+
   transform (CHMCDef ident chmHead cExtDecls _) = do
     enterCHMHead
     chmHead' <- transform chmHead
-    expls <- declareClassContents (getCName ident) cExtDecls
+    expls <- declareClassContents (getCName ident) Nothing cExtDecls
     leaveCHMHead
     return [(expls, [])]
 
@@ -881,6 +891,7 @@ defineInstanceContents id (CHMParams chmTypes _) cExtDecls = do
 instance Transform CHMIDef where
   transform (CHMIDef id chmPars cExtDecls nInfo) =
     transform (CHMIDefHead id (CHMHead [] [] nInfo) chmPars cExtDecls nInfo)
+
   transform (CHMIDefHead ident chmHead chmPars cExtDecls _) = do
     enterCHMHead
     chmHead' <- transform chmHead

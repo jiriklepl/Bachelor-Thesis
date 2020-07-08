@@ -967,8 +967,8 @@ getStructKind id = do
   return $ structKind <$> (id `Map.lookup` structs)
 
 -- | Makes a new entry in the class environment and in the 'TransformMonad'
-registerClass :: Id -> TState Bool
-registerClass id = do
+registerClass :: Id -> Maybe Type ->  TState Bool
+registerClass id mCType = do
   state@TransformMonad
     { userClasses = uCs
     , typeVariables = tVs
@@ -981,8 +981,9 @@ registerClass id = do
   else do
     let
       tVars = head tVs
-      count = length tVars
-      classType = createParamsType $ TVar <$> tVars
+      classType = case mCType of
+        Nothing -> createParamsType $ TVar <$> tVars
+        Just classType' -> classType'
       superClasses =
         [ if t /= classType
           then error "invalid superclass"  -- super-class has to have the same parameter(s)
@@ -1060,6 +1061,14 @@ runTState a = runState a initTransformMonad
 class GetCName a where
   getCName :: a -> Id
 
+instance GetCName CHMCDef where
+  getCName (CHMCDef ident _ _ _) = getCName ident
+  getCName (CHMCDefParams ident _ _ _ _) = getCName ident
+
+instance GetCName CHMIDef where
+  getCName (CHMIDef ident _ _ _) = getCName ident
+  getCName (CHMIDefHead ident _ _ _ _) = getCName ident
+
 instance GetCName CFunDef where
   getCName (CFunDef _ (CDeclr (Just ident) _ _ _ _) _ _ _) = getCName ident
 
@@ -1073,6 +1082,8 @@ instance GetCName CStructUnion where
   getCName (CStruct _ (Just ident) _ _ _) = getCName ident
 
 instance GetCName CExtDecl where
+  getCName (CHMCDefExt chmCDef) = getCName chmCDef
+  getCName (CHMIDefExt chmIDef) = getCName chmIDef
   getCName (CHMFDefExt chmFunDef) = getCName chmFunDef
   getCName (CHMSDefExt chmStructDef) = getCName chmStructDef
   getCName (CFDefExt cFunDef)     = getCName cFunDef
