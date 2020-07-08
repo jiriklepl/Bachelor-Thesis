@@ -196,16 +196,16 @@ translateDeclSpecs (decl:decls) = case decl of
     case mKind of
       Just kind -> return $ TCon (Tycon name kind)
       Nothing -> return $ TCon (Tycon name Star)
-{-
-  On the above line `Star` is just a placeholder `Kind`, no `Kind` is
-  actually known yet, but this should happen only in contexts of
-  C declarations.
+  {-
+    On the above line `Star` is just a placeholder `Kind`, no `Kind` is
+    actually known yet, but this should happen only in contexts of
+    C declarations.
 
-  The following would make pure declaration not work:
-      Nothing -> error $ niceError
-        ("cannot find the requested struct `" <> T.unpack name <> "`")
-        nInfo
--}
+    The following would make pure declaration not work:
+        Nothing -> error $ niceError
+          ("cannot find the requested struct `" <> T.unpack name <> "`")
+          nInfo
+  -}
   CTypeSpec (CSUType (CStruct _ (Just ident) (Just cDecls) _ nInfo) _) -> do
     let name = getCName ident
     registered <- registerStruct name nInfo
@@ -218,9 +218,17 @@ translateDeclSpecs (decl:decls) = case decl of
     return (TCon (Tycon name Star))
   CTypeSpec (CSUType (CStruct _ Nothing _ _ _) _ ) -> return tError  -- TODO
   CTypeSpec (CTypeDef ident _) -> do
-    let name = getCName ident
-    name <- scopedName name
-    return $ TVar (Tyvar name Star)
+    name <- scopedName $ getCName ident
+    tVs <- gets typeVariables
+    case name `isThere` concat tVs of
+      Just tv -> return . TVar $ tv
+      Nothing -> do
+        return $ TVar (Tyvar name Star)
+    where
+      isThere name (tv@(Tyvar id _):rest)
+        | name == id = Just tv
+        | otherwise = isThere name rest
+      isThere _ [] = Nothing
   -- TODO: from here
   CTypeQual (CConstQual _) -> toConst <$> translateDeclSpecs decls  -- works only with west const :(
   CTypeQual (CVolatQual _) -> translateDeclSpecs decls  -- TODO
@@ -586,7 +594,7 @@ beginCHMFunDef chmHead name = do
 instance Transform CHMFunDef where
   transform (CHMFunDef chmHead funDef _) = do
     name <- beginCHMFunDef chmHead (getCName funDef)
-    rtrn <- transformFunDef funDef name >>= chmSchemize
+    rtrn <- transformFunDef funDef name >>= chmSchemize >>= replaceAliasize
     leaveCHMHead
     leaveFunction
     return [rtrn]
@@ -740,8 +748,8 @@ fixKinds t = do
       let
         (id, kind) = getAp t1
       in (id, Kfun Star kind)
-    getAp (TVar (Tyvar id _)) = (id, Star)
-    getAp _ = (mempty, Star)
+    getAp (TVar (Tyvar id kind)) = (id, kind)  -- TODO: not sure about this
+    getAp (TCon (Tycon id kind)) = (mempty, kind)
     ap = getAp t
   state@TransformMonad
     { typeVariables = tVs
@@ -849,14 +857,14 @@ declareClassContents id mParams cExtDecls = do
 instance Transform CHMCDef where
   transform (CHMCDefParams ident chmHead chmParams cExtDecls _) = do
     enterCHMHead
-    chmHead' <- transform chmHead
+    transform_ chmHead
     expls <- declareClassContents (getCName ident) (Just chmParams) cExtDecls
     leaveCHMHead
     return [(expls, [])]
 
   transform (CHMCDef ident chmHead cExtDecls _) = do
     enterCHMHead
-    chmHead' <- transform chmHead
+    transform_ chmHead
     expls <- declareClassContents (getCName ident) Nothing cExtDecls
     leaveCHMHead
     return [(expls, [])]
@@ -894,7 +902,7 @@ instance Transform CHMIDef where
 
   transform (CHMIDefHead ident chmHead chmPars cExtDecls _) = do
     enterCHMHead
-    chmHead' <- transform chmHead
+    transform_ chmHead
     rtrn <- defineInstanceContents (getCName ident) chmPars cExtDecls
     leaveCHMHead
     return [rtrn]
