@@ -2,98 +2,45 @@
 #include "stl.h"
 
 /*/
+
+<a, b : c ~ a : <b> >
+class PseudoPointer<a>
+{
+	b deref(c);
+}
+
 <a>
-struct vector {
-	a* data;
-	int size, capacity;
+struct pointer
+{
+	a* where;
 };
 
-<a : b ~ struct vector : <a> >
-b alloc_vector(int size)
+<a : c ~ struct pointer : <a> >
+instance PseudoPointer<struct pointer>
 {
-	b v;
-	v.data = newArray(size);
-	v.size = 0;
-	v.capacity = size;
-	return v;
-}
-
-<a : b ~ struct vector : <a> >
-b singleton(a value)
-{
-	b v;
-	v.data = newArray(1);
-	v.data[0] = value;
-	v.size = 1;
-	v.capacity = 1;
-	return v;
-}
-
-<a : b ~ struct vector : <a> >
-void push_back(b *v, a thing)
-{
-	if (v->size < v->capacity) {
-		v->data[v->size] = thing;
-		v->size = v->size + 1;
-	} else {
-		a *old = v->data;
-		*v = alloc_vector(v->capacity * 2);
-		// fictional copying of the content
-		deleteArray(old);
-		old = nullptr();
+	a deref(c x)
+	{
+		return *x.where;
 	}
 }
 
-<vector_char, vector_int, vector_float>
-int f() {
-	vector_int v = alloc_vector(5);
-	push_back(&v, 0);
-	push_back(&v, 1);
-	push_back(&v, 2);
-	push_back(&v, 3);
-	push_back(&v, 4);
-
-	vector_char w = alloc_vector(5);
-	push_back(&w, '0');
-	push_back(&w, '1');
-	push_back(&w, '2');
-	push_back(&w, '3');
-	push_back(&w, '4');
-
-	vector_float x = alloc_vector(5);
-	push_back(&x, 0.0);
-	push_back(&x, 1.0);
-	push_back(&x, 2.0);
-	push_back(&x, 3.0);
-	push_back(&x, 4.0);
+<a, b: c ~ a : <b>, PseudoPointer<a> >
+b f(c x)
+{
+	return deref(x);
 }
 
-int main()
-{
-	char c;
-	f();
-}
-
-//
-
-<a, b>
-struct test_struct
-{
-	a value_a;
-	b value_b;
-};
-
-<a, b : c ~ struct test_struct : <a, b> >
-void f(a value_a, b value_b)
+< : c ~ struct pointer : <int> >
+int g()
 {
 	c x;
+	return f(x);
 }
 
 int main()
 {
-	char c;
-	for (int i = 0; i < 10; i++)
-		f(i, c);
+	g();
+	int i;
 }
 
 /*/
@@ -121,8 +68,6 @@ b *pull(b *head)
 	delete(head);
 	return next;
 }
-
-/**/
 
 <a>
 int f()
@@ -785,3 +730,5 @@ int main()
 	char i = 'c';
 	print(&i);
 }
+
+/**/
