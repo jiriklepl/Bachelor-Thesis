@@ -958,7 +958,7 @@ rewrite cExtDecl scheme@(Forall [] (cs :=> t)) = do
   let
     Just cId = pTypeClass pType
     Just (IsIn _ cT) = List.find (\(IsIn cId' t') -> cId' == cId) cs
-    substs = catMaybes  -- TODO
+    substs = catMaybes  -- TODO: determine how to resolve
       [ if c == cT
            --- || not (null . runTI $ mgu cT c)
           then Just def
@@ -968,7 +968,7 @@ rewrite cExtDecl scheme@(Forall [] (cs :=> t)) = do
   case substs of
     [] -> error "cannot create the instance"
     [iDef] -> return . CFDefExt $ renameCDef (T.concat [dUnderScore, name, mangle scheme]) (getFunDef iDef)
-    _ -> error "I don't know yet"  -- TODO
+    _ -> error "I don't know yet"  -- TODO: determine how to resolve
 
 parseReSchemedVirtual :: Scheme -> CExtDecl -> BindGroup -> IState (Map.Map Id Scheme)
 parseReSchemedVirtual scheme cExtDecl bindGroup = do
