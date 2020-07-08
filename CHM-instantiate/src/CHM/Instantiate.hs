@@ -74,7 +74,7 @@ instance Magic CExtDecl where
               enterCHMHead
               _ <- transform chmHead
               createParamsType <$> traverse transformCHMType chmTypes
-          , cExtDecls')
+          , (\(CFDefExt cFunDef) -> CHMFDefExt (CHMFunDef chmHead cFunDef (nodeInfo cFunDef))) <$> cExtDecls')  -- TODO: add case for two chmHeads
       (parType, _) = runState parTypeAction tState
     sequence_
       [ let

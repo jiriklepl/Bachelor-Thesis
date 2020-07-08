@@ -510,7 +510,6 @@ instantiate extFunDef scheme = do
     -- TODO: i cannot remember what
   extFunDef'' <- replaceTVars tVarMap extFunDef' >>= flip rewrite scheme
   pullPolyMaps
-  enqueueExtDecl extFunDef''
 
 class ReplaceTVars a where
   replaceTVars :: Map.Map Id Scheme -> a -> IState a
@@ -936,8 +935,8 @@ instantiateSUType (CStruct cStructTag (Just name) _ _ nInfo) scheme = do
             nInfo
       )
 
-rewrite :: CExtDecl -> Scheme -> IState CExtDecl
-rewrite cExtDecl@CFDefExt{} _ = return cExtDecl
+rewrite :: CExtDecl -> Scheme -> IState ()
+rewrite cExtDecl@CFDefExt{} _ = enqueueExtDecl cExtDecl
 rewrite cExtDecl@(CHMSDefExt (CHMStructDef _ cStructUnion _)) scheme = do
   let
     name = getCName cStructUnion
@@ -945,13 +944,13 @@ rewrite cExtDecl@(CHMSDefExt (CHMStructDef _ cStructUnion _)) scheme = do
     cStructUnion' = renameCDef scheme' cStructUnion
     nInfo = nodeInfo cStructUnion'
   instantiateSUType cStructUnion scheme
-  return . CDeclExt $ CDecl
+  enqueueExtDecl . CDeclExt $ CDecl
       [CTypeSpec $ CSUType cStructUnion' nInfo]
       []
       nInfo
 rewrite cExtDecl@(CHMFDefExt (CHMFunDef chmHead cFunDef _)) scheme =
   let name = getCName cFunDef
-  in return . CFDefExt $ renameCDef (T.concat [dUnderScore, name, mangle scheme]) cFunDef
+  in enqueueExtDecl . CFDefExt $ renameCDef (T.concat [dUnderScore, name, mangle scheme]) cFunDef
 rewrite cExtDecl scheme@(Forall [] (cs :=> t)) = do
   let name = getCName cExtDecl
   pType <- gets ((Map.! name) . polyTypes)
@@ -967,7 +966,8 @@ rewrite cExtDecl scheme@(Forall [] (cs :=> t)) = do
       ]
   case substs of
     [] -> error "cannot create the instance"
-    [iDef] -> return . CFDefExt $ renameCDef (T.concat [dUnderScore, name, mangle scheme]) (getFunDef iDef)
+    [iDef] -> do
+      instantiate (iDef) scheme
     _ -> error "I don't know yet"  -- TODO: determine how to resolve
 
 parseReSchemedVirtual :: Scheme -> CExtDecl -> BindGroup -> IState (Map.Map Id Scheme)

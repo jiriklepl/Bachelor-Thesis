@@ -688,17 +688,15 @@ filterClasses acc@(tVars, preds, outPreds) =
 
 -- | Replaces aliases created in the last chm head by real type variables
 replaceAliases :: Type -> TState Type
-replaceAliases t@(TVar (Tyvar id kind)) = do
+replaceAliases t = do
   tAs <- gets typeAliases
-  case id `Map.lookup` head tAs of
-    Just t' -> return t'
-    Nothing -> return t
-replaceAliases (TAp t1 t2) = do
-  t1' <- replaceAliases t1
-  t2' <- replaceAliases t2
-  return $ TAp t1' t2'
--- for TGen(?) and mainly TCon
-replaceAliases t = return t
+  return $ applyAliases' (Map.unions tAs) t
+
+applyAliases' :: Map.Map Id Type -> Type -> Type
+applyAliases' tAs t@(TVar (Tyvar id _)) =
+  maybe t (applyAliases' tAs) (id `Map.lookup` tAs)
+applyAliases' tAs (TAp t1 t2) = TAp (applyAliases' tAs t1) (applyAliases' tAs t2)
+applyAliases' _ t = t
 
 -- | Replaces type annotations with generic types and constraints (see 'quantify')
 chmScheme :: Type -> TState Scheme
@@ -709,9 +707,9 @@ chmScheme t = do
     } <- get
   t' <- replaceAliases t
   let
-    tVars = Set.fromList [id | Tyvar id _ <- head tVs]
+    tVars = Set.fromList [id | Tyvar id _ <- concat tVs]
     (types, _) = filterTypes t' (mempty, tVars)
-    (types', _, classes) = filterClasses (types, head vCs, [])
+    (types', _, classes) = filterClasses (types, concat vCs, [])
   return $ quantify types' $ classes :=> t'
 {-
 chmScheme :: Type -> TState Scheme
