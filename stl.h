@@ -3,7 +3,8 @@
 void __print_char(char);
 void __print_int(int);
 
-class Print<a> {
+<a>
+class Print {
     void print(a *);
 }
 
