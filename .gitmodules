@@ -1,5 +1,5 @@
-[submodule "C-with-Hindley-Milner-Type-System"]
-	path = C-with-Hindley-Milner-Type-System
+[submodule "language-chm"]
+	path = language-chm
 	url = https://github.com/jiriklepl/language-chm.git
 [submodule "thih-Nov23-2000"]
 	path = thih-Nov23-2000
