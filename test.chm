@@ -48,14 +48,15 @@ int main()
 <a : b ~ struct List : <a> >
 struct List
 {
-	a value;
 	b *next;
+	a value;
 };
 
 <a : b ~ struct List : <a> >
 b *push(b *head, a value)
 {
-    b *item = new(); // new() is an stl function behaving as malloc(sizeof(b))
+    b *item = new();
+    // new() is an stl function behaving as malloc(sizeof(b))
     item->value = value;
     item->next = head;
     return item;
