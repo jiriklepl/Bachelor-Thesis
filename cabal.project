@@ -1,4 +1,4 @@
-packages: C-with-Hindley-Milner-Type-System
+packages: language-chm
           CHM-instantiate
           thih-Nov23-2000
           AST-to-THIH
