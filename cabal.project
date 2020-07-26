@@ -1,5 +1,6 @@
 packages: language-chm
           CHM-instantiate
+          CHM-main
           thih-Nov23-2000
           AST-to-THIH
 documentation: True

@@ -15,7 +15,7 @@ build-type:          Simple
 extra-source-files:  ChangeLog.md
 cabal-version:       >=1.10
 
-executable CHM-instantiate
+library
   default-language:  Haskell2010
   build-depends:     base >= 4.12 && < 5,
                      bytestring >= 0.10 && < 1,
@@ -25,7 +25,6 @@ executable CHM-instantiate
                      mtl >= 2.2 && <3,
                      chm-thih
   hs-source-dirs:    src
-  main-is:           Main.hs
-  other-modules:     CHM.Instantiate,
-                     CHM.InstantiateMonad
+  exposed-modules:   CHM.Instantiate
+  other-modules:     CHM.InstantiateMonad
   -- other-extensions:
