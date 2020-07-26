@@ -111,10 +111,10 @@ main = getArgs >>= parseArgs initCommandOptions
 
 printUsage handle = hPutStr handle "Usage: [options] file...\n\
 \  -d, --directory <dir>   put the temporary files to <dir>, defaults to '.'\n\
-\  -h, --help <depth>      print this information\n\
+\  -h, --help              print this information\n\
 \  -n, --depth <depth>     set the maximum allowed <depth> of instance types, defaults to 500\n\
 \  -o, --output <file>     write the output to <file>, defaults to 'a.out'\n\
-\  -v, --version           print he version information\n\
+\  -v, --version           print the version information\n\
 \"
 printVersion = putStrLn "The CHM compiler (v 0.1.0.0)" -- TODO
 
