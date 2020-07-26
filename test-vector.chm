@@ -1,0 +1,47 @@
+// CHM test source code
+#include "stl.h"
+
+
+// This is a pretty standard vector
+<T> // this is header -> instantiates types used in definition
+struct vector {
+	T *_content;
+	int _length;
+	int _capacity;
+};
+
+// Makes a vector of one element
+<T : V ~ struct vector : <T> >
+V vectorise(T first)
+{
+	V x;
+	x._content = new();
+	x._length = x._capacity = 1;
+
+	if (x._content != nullptr()) {
+		x._content[0] = first;
+	}
+
+	return x;
+}
+
+<T : V ~ struct vector : <T> >
+void free_vector(V vector)
+{
+	delete(vector._content);
+	vector._content = nullptr();
+	vector._length = vector._capacity = 0;
+}
+
+< : V ~ struct vector : <int> >
+void f()
+{
+	V a = vectorise(5);
+	// a should be a vector of size 1 containing 5 (int)
+	free_vector(a);
+}
+
+int main() {
+	f();
+	return 0;
+}
