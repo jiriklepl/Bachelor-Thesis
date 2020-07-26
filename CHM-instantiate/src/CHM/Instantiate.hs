@@ -1,8 +1,6 @@
 {-# LANGUAGE FlexibleInstances, FlexibleContexts #-}
 module CHM.Instantiate where
 
-import Debug.Trace
-
 import Control.Monad.State
 import Control.Monad((>=>), when)
 import qualified Data.Set as Set
@@ -22,9 +20,18 @@ import CHM.Transform
 
 import CHM.InstantiateMonad
 
+data CompilerOptions = CompilerOptions
+  { tDepth         :: Int
+  }
+  deriving (Show)
+
+initInstantiateMonadWith :: CompilerOptions -> InstantiateMonad
+initInstantiateMonadWith compOpts = initInstantiateMonad
+  { maxTypeDepth = tDepth compOpts
+  }
+
 class Magic a where
   magic :: a -> IState ()
-
 
 instance Magic CExtDecl where
   magic a@(CHMFDefExt _) = do
@@ -89,7 +96,12 @@ instance Magic a => Magic [a] where
 instance Magic CTranslUnit where
   magic (CTranslUnit cExtDecls _) = magic cExtDecls
 
-doMagic :: CTranslUnit -> IO ()
-doMagic (CTranslUnit cExtDecls nodeInfo) =
-  let state = execState (magic cExtDecls) initInstantiateMonad
-  in foldl (\u decl -> u >> print (pretty decl)) (return ()) (cProgram state)
+execMagicWith :: CompilerOptions -> CTranslUnit -> CProgram
+execMagicWith compOpts (CTranslUnit cExtDecls nodeInfo) =
+  cProgram $ execState
+    (magic cExtDecls)
+    (initInstantiateMonadWith compOpts)
+
+execMagic :: CTranslUnit -> CProgram
+execMagic (CTranslUnit cExtDecls nodeInfo) =
+  cProgram $ execState (magic cExtDecls) initInstantiateMonad

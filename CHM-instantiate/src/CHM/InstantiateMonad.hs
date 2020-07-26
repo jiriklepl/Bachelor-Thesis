@@ -22,6 +22,7 @@ import TypingHaskellInHaskell hiding (modify)
 import CHM.Transform
 
 type IState = State InstantiateMonad
+type CProgram = Seq.Seq CExtDecl
 
 -- | Remembers the main definition (or definitions if is classed) and list of instances
 data PolyType = PolyType
@@ -48,18 +49,18 @@ data InstantiateMonad = InstantiateMonad
   , schemeInstances  :: Set.Set Id
   , polyAnonNumber   :: Int
   , polyMaps         :: [Map.Map Id Id]
-  , cProgram         :: Seq.Seq CExtDecl
+  , maxTypeDepth     :: Int
+  , cProgram         :: CProgram
   }
-
 
 -- | Creates the PolyType just with the scheme and the C definition
 initPolyType :: Scheme -> CExtDecl -> PolyType
 initPolyType scheme def = PolyType
-  { pTypeDefinition = def
+  { pTypeDefinition  = def
   , pTypeDefinitions = mempty
-  , pTypeClass = Nothing
-  , pTypeScheme = scheme
-  , pTypeInstances = mempty
+  , pTypeClass       = Nothing
+  , pTypeScheme      = scheme
+  , pTypeInstances   = mempty
   }
 
 initClassPolyType :: Id -> Scheme -> CExtDecl -> PolyType
@@ -77,6 +78,7 @@ initInstantiateMonad = InstantiateMonad
   , schemeInstances  = mempty
   , polyAnonNumber   = 0
   , polyMaps         = []
+  , maxTypeDepth     = 500
   , cProgram         = mempty
   }
 
@@ -464,9 +466,14 @@ instance
 
 instantiate :: CExtDecl -> Scheme -> IState ()
 instantiate extFunDef scheme = do
-  when (typeDepth scheme > 500) . error $
+  maxDepth <- gets maxTypeDepth
+  let depth = typeDepth scheme
+  when (depth > maxDepth) . error $
     niceError
-      "Type too complex, detected possible instantiation of an infinite type"
+      (  "Type exceeds the maximum depth (depth: " ++ show depth
+      ++ ", allowed: " ++ show maxDepth
+      ++ "), detected a possibility of infinite instantiation"
+      )
       (nodeInfo extFunDef)
   syncScopes
   pushPolyMaps
