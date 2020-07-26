@@ -61,13 +61,13 @@ parseArgs opts (('-':option):rest) = case option of
         parseArgs newOpts $ tail rest
     output = argOpt
       opts{output = head rest}
-      "Error: expected an output file after the -o option"
+      "Error: Expected an output <file> after the -o option"
     directory = argOpt
       opts{outDir = head rest}
-      "Error: expected a directory for the temporary files"
+      "Error: Expected a directory <dir> for the temporary files"
     depth = argOpt
       opts{compOpts = (compOpts opts){tDepth = read (head rest)}}
-      "Error: expected an output file after the -o option"
+      "Error: Expected a maximum <depth> of the instance types"
 parseArgs opts (file:rest) = do
   parseArgs opts{files = file : files opts} rest
 
@@ -96,7 +96,7 @@ parseArgs opts [] = if null (files opts)
           ".c" -> return file
           _ -> do
             hPutStrLn stderr $
-              "unknown file extension for the file: " ++ file
+              "Error: Unknown file extension for the file: " ++ file
             fileErrorExit
       | file <- reverse $ files opts
       ]
@@ -110,11 +110,11 @@ parseArgs opts [] = if null (files opts)
 main = getArgs >>= parseArgs initCommandOptions
 
 printUsage handle = hPutStr handle "Usage: [options] file...\n\
-\  -d, --directory <dir>   put the temporary files to <dir>, defaults to '.'\n\
-\  -h, --help              print this information\n\
-\  -n, --depth <depth>     set the maximum allowed <depth> of instance types, defaults to 500\n\
-\  -o, --output <file>     write the output to <file>, defaults to 'a.out'\n\
-\  -v, --version           print the version information\n\
+\  -d, --directory <dir>   Put the temporary files to <dir>, defaults to '.'\n\
+\  -h, --help              Print this information\n\
+\  -n, --depth <depth>     Set the maximum allowed <depth> of instance types, defaults to 500\n\
+\  -o, --output <file>     Write the output to <file>, defaults to 'a.out'\n\
+\  -v, --version           Print the version information\n\
 \"
 printVersion = putStrLn "The CHM compiler (v 0.1.0.0)" -- TODO
 
