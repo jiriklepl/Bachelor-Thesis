@@ -1,5 +1,5 @@
 {-# LANGUAGE FlexibleInstances, FlexibleContexts #-}
-module CHM.Instantiate where
+module CHM.Instantiate(module CHM.Instantiate, getTransformResult) where
 
 import Control.Monad.State
 import Control.Monad((>=>), when)
