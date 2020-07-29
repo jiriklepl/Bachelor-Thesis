@@ -82,7 +82,7 @@ getTransformResult = fst . runTState . transform
   consisting of 'builtIns' and 'memberClasses' retrieved from the state
   and the given 'Assump's
 -}
-typeInfer :: Map.Map Id Scheme -> Program -> TState (Map.Map Id Scheme)
+typeInfer :: Map.Map Id Scheme -> Program -> TState (Either String (Map.Map Id Scheme))
 typeInfer assumps program = do
   TransformMonad{builtIns = bIs, memberClasses = mCs}  <- get
   case mCs initialEnv of
@@ -93,7 +93,7 @@ typeInfer assumps program = do
   Runs thih on the given C construct after transforming it
   (using new state)
 -}
-runInfer :: Transform a => a -> Map.Map Id Scheme
+runInfer :: (Transform a, CNode a) => a -> Map.Map Id Scheme
 runInfer a =
   let
     (program, TransformMonad{memberClasses=mCs, builtIns=bIs}) =
@@ -101,7 +101,11 @@ runInfer a =
   in
     case mCs initialEnv of
       Nothing -> error "Environment is broken"
-      Just env -> tiProgram env bIs program
+      Just env -> case tiProgram env bIs program of
+        Right assumps -> assumps
+        Left err -> error $ niceError
+          err
+          (nodeInfo a)
 
 -- | Takes a 'Program' and flattens it into a 'BindGroup'
 flattenProgram :: Program -> BindGroup

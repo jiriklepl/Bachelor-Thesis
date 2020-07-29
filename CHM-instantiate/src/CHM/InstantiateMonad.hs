@@ -1052,7 +1052,11 @@ parseReSchemedVirtual scheme cExtDecl bindGroup = do
               , []
               )
             ]
-  return as
+  case as of
+    Right as' -> return as'
+    Left err -> error $ niceError
+      err
+      (nodeInfo cExtDecl)
 
 syncScopes :: IState ()
 syncScopes = do
@@ -1066,17 +1070,22 @@ runTState a = do
   put state{transformState = tS'}
   return a'
 
-parse :: Transform a => a -> IState (Map.Map Id Scheme)
+parse :: (Transform a, CNode a) => a -> IState (Map.Map Id Scheme)
 parse a = do
   state@InstantiateMonad{transformState = tS, parsedAssumps = pAs} <- get
-  let (as, tS') = runState (transform a >>= typeInfer pAs) tS
+  let
+    (as, tS') = case runState (transform a >>= typeInfer pAs) tS of
+      (Right result, tS') -> (result, tS')
+      (Left err, tS') -> error $ niceError
+        err
+        (nodeInfo a)
   put state
     { transformState = tS'
     , parsedAssumps = as <> pAs
     }
   return as
 
-parse_ :: Transform a => a -> IState ()
+parse_ :: (Transform a, CNode a) => a -> IState ()
 parse_ = (>> return ()) . parse
 
 mangleScheme :: Scheme -> Id
