@@ -1,0 +1,35 @@
+// CHM test source code
+#include "stl.h"
+
+/*
+  This test showcases how the user can specify
+  that a type has a certain field.
+
+  The program should compile without sny errors,
+  and then (during runtime) it should print out: 100100
+ */
+
+typedef struct foo {
+    int bar;
+} foo;
+
+typedef struct foo2 {
+    int bar;
+} foo2;
+
+<a : Has_bar<a> >
+void f(a *arg)
+{
+    print(&arg->bar);
+}
+
+int main()
+{
+	struct foo x;
+	x.bar = 100;
+	f(&x);
+
+	struct foo2 x2;
+	x2.bar = 100;
+	f(&x2);
+}

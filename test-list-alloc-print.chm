@@ -1,0 +1,62 @@
+// CHM test source code
+#include "stl.h"
+
+/*
+  This test showcases that, in the function f,
+  the compiler is able to determine the correct type
+  of the variable x from the context.
+
+  It knows the type of x and because of that it even
+  allows the user to access its fields.
+
+  After successfull compilation without any errors,
+  the program should print integers 99 to 0 on separate lines.
+ */
+
+
+<a : b ~ struct List : <a> >
+struct List
+{
+	b *next;
+	a value;
+};
+
+<a : b ~ struct List : <a> >
+b *push(b *head, a value)
+{
+    b *item = new();
+    // new() is an stl function behaving as malloc(sizeof(b))
+    item->value = value;
+    item->next = head;
+    return item;
+}
+
+<a : b ~ struct List : <a> >
+b *pull(b *head)
+{
+	b* next = head->next;
+	delete(head);
+	return next;
+}
+
+<a>
+void f()
+{
+	a x = nullptr();
+	char nl = '\n';
+
+	for (int i = 0; i < 100; i++) {
+		x = push(x, i);
+	}
+
+	for (int i = 0; i < 100; i++) {
+		print(&x->value);
+		print(&nl);
+		x = pull(x);
+	}
+}
+
+int main()
+{
+	f();
+}

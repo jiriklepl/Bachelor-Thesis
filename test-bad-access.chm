@@ -1,0 +1,25 @@
+// CHM test source code
+#include "stl.h"
+
+/*
+  This test showcases that if we do not know
+  the type of a variable (arg), we cannot access its fields.
+
+  The compiler should print a "context too weak" error and fail.
+ */
+
+typedef struct foo {
+    int bar;
+} foo;
+
+<a>
+void f(a *arg)
+{
+    print(&arg->bar);
+}
+
+int main()
+{
+	struct foo x;
+	f(&x);
+}

@@ -45,3 +45,17 @@ For more information on the possible options and syntax run with an argument `--
 ```sh
 ./run.sh --help
 ```
+
+## Testing
+
+There are several test files provided by this package:
+
+```sh
+test-bad-access.chm
+test-good-access.chm
+test-list-alloc-print.chm
+test-vector.chm
+```
+
+Each of the test files begins with a comment explaining the purpose of the test and the expected behavior of compilation or runtime.
+Running Valgrind on any of the successfully compiled programs should not find any memory leaks or any bad reads/writes.

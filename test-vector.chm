@@ -1,9 +1,26 @@
 // CHM test source code
 #include "stl.h"
 
+/*
+  This test implements a vector and a function for allocation
+  of arrays (both are good candidates for an inclusion in the STL library).
 
-// This is a pretty standard vector
-<T> // this is header -> instantiates types used in definition
+  It showcases that the compiler even determines types of
+  literals (integral literals being implicitly 'int', but can be 'char'
+  as well).
+
+  After successfull compilation without any errors,
+  the program should print integers from 0 to 5 on separate lines.
+ */
+
+// a generic new for arrays (a naive implementation)
+<a>
+a *new_many(int count)
+{
+	return (a *)malloc(sizeof(a) * count);
+}
+
+<T>
 struct vector {
 	T *_content;
 	int _length;
@@ -25,6 +42,28 @@ V vectorise(T first)
 	return x;
 }
 
+// Adds an element to the back of the vector
+// Reallocates the vector if needed (doubles the size)
+<T : V ~ struct vector : <T> >
+void vector_push(V *v, T a)
+{
+	if (v->_length == v->_capacity) {
+		v->_capacity *= 2;
+		T *new_content = new_many(v->_capacity);
+
+		for (int i = 0; i < v->_length; i++) {
+			new_content[i] = v->_content[i];
+		}
+
+		new_content[v->_length++] = a;
+
+		delete(v->_content);
+		v->_content = new_content;
+	} else {
+		v->_content[v->_length++] = a;
+	}
+}
+
 <T : V ~ struct vector : <T> >
 void free_vector(V vector)
 {
@@ -33,12 +72,24 @@ void free_vector(V vector)
 	vector._length = vector._capacity = 0;
 }
 
-< : V ~ struct vector : <int> >
+<a>
 void f()
 {
-	V a = vectorise(5);
-	// a should be a vector of size 1 containing 5 (int)
-	free_vector(a);
+	char nl = '\n';
+
+	a x = vectorise(48);
+	vector_push(&x, 49);
+	vector_push(&x, 50);
+	vector_push(&x, 51);
+	vector_push(&x, 52);
+	vector_push(&x, '5');
+
+	for (int i = 0; i < x._length; i++) {
+		print(&x._content[i]);
+		print(&nl);
+	}
+
+	free_vector(x);
 }
 
 int main() {
