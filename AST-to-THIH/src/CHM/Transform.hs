@@ -123,7 +123,9 @@ reverseExpls :: BindGroup -> BindGroup
 reverseExpls (expls, impls) = (reverse expls, impls)
 
 {- |
-  TODO: I should describe this and also check its validity
+  Performs transformation of a function from a form that contains
+  initializations among other statements to a form that models
+  initializations via lambdas.
 -}
 reassemble :: BindGroup -> TState BindGroup
 reassemble bindGroup@([(name, scheme, [(pats, Let (expls, impls) returnValue)])], []) = case expls of
@@ -176,8 +178,10 @@ toConst :: Type -> Type
 toConst c@(TAp tConst a) = c
 toConst c = TAp tConst c
 
+-- TODO: just temporary implementation, should do better parsing
+-- of composite declaration specifier sequences
 -- | Translates '[CDeclSpec]' type annotation to the haskell-like 'Type'
-translateDeclSpecs :: [CDeclSpec] -> TState Type  -- TODO: just temporary implementation, should use the State monad
+translateDeclSpecs :: [CDeclSpec] -> TState Type
 translateDeclSpecs (decl:decls) = case decl of
   CTypeSpec (CVoidType _) -> return tVoid
   CTypeSpec (CCharType _) -> return tChar
@@ -203,12 +207,7 @@ translateDeclSpecs (decl:decls) = case decl of
   {-
     On the above line `Star` is just a placeholder `Kind`, no `Kind` is
     actually known yet, but this should happen only in contexts of
-    C declarations.
-
-    The following would make pure declaration not work:
-        Nothing -> error $ niceError
-          ("cannot find the requested struct `" <> T.unpack name <> "`")
-          nInfo
+    C declarations, and it thus it should not affect anything.
   -}
   CTypeSpec (CSUType (CStruct _ (Just ident) (Just cDecls) _ nInfo) _) -> do
     let name = getCName ident
@@ -220,7 +219,7 @@ translateDeclSpecs (decl:decls) = case decl of
     registered <- registerStruct name nInfo
     when registered $ registerStructMembers name cDecls
     return (TCon (Tycon name Star))
-  CTypeSpec (CSUType (CStruct _ Nothing _ _ _) _ ) -> return tError  -- TODO
+  CTypeSpec (CSUType (CStruct _ Nothing _ _ _) _ ) -> return tError  -- FIXME: this case is not very common and it should be forbidden
   CTypeSpec (CTypeDef ident _) -> do
     name <- scopedName $ getCName ident
     tVs <- gets typeVariables
@@ -233,16 +232,15 @@ translateDeclSpecs (decl:decls) = case decl of
         | name == id = Just tv
         | otherwise = isThere name rest
       isThere _ [] = Nothing
-  -- TODO: from here
-  CTypeQual (CConstQual _) -> toConst <$> translateDeclSpecs decls  -- works only with west const :(
-  CTypeQual (CVolatQual _) -> translateDeclSpecs decls  -- TODO
-  CTypeQual (CRestrQual _) -> translateDeclSpecs decls  -- TODO
-  CTypeQual (CAtomicQual _) -> translateDeclSpecs decls  -- TODO
-  CTypeQual (CAttrQual _) -> translateDeclSpecs decls  -- TODO
-  CTypeQual (CNullableQual _) -> translateDeclSpecs decls  -- TODO
-  CTypeQual (CNonnullQual _) -> translateDeclSpecs decls  -- TODO
-  CTypeQual (CClRdOnlyQual _) -> translateDeclSpecs decls  -- TODO
-  CTypeQual (CClWrOnlyQual _) -> translateDeclSpecs decls  -- TODO
+  CTypeQual (CConstQual _) -> toConst <$> translateDeclSpecs decls  -- TODO: works only with west const, also: undefined behavior
+  CTypeQual (CVolatQual _) -> translateDeclSpecs decls
+  CTypeQual (CRestrQual _) -> translateDeclSpecs decls
+  CTypeQual (CAtomicQual _) -> translateDeclSpecs decls
+  CTypeQual (CAttrQual _) -> translateDeclSpecs decls
+  CTypeQual (CNullableQual _) -> translateDeclSpecs decls
+  CTypeQual (CNonnullQual _) -> translateDeclSpecs decls
+  CTypeQual (CClRdOnlyQual _) -> translateDeclSpecs decls
+  CTypeQual (CClWrOnlyQual _) -> translateDeclSpecs decls
   CFunSpec _ -> translateDeclSpecs decls
   CStorageSpec _ -> translateDeclSpecs decls
   CAlignSpec _ -> translateDeclSpecs decls
@@ -254,14 +252,14 @@ translateDerivedDecl t (dDecl:dDecls) = do
   let
     translateQuals s (typeQual:tDecls) = case typeQual of
       (CConstQual _) -> toConst $ translateQuals s tDecls
-      (CVolatQual _) -> translateQuals s tDecls  -- TODO
-      (CRestrQual _) -> translateQuals s tDecls  -- TODO
-      (CAtomicQual _) -> translateQuals s tDecls  -- TODO
-      (CAttrQual _) -> translateQuals s tDecls  -- TODO
-      (CNullableQual _) -> translateQuals s tDecls  -- TODO
-      (CNonnullQual _) -> translateQuals s tDecls  -- TODO
-      (CClRdOnlyQual _) -> translateQuals s tDecls  -- TODO
-      (CClWrOnlyQual _) -> translateQuals s tDecls  -- TODO
+      (CVolatQual _) -> translateQuals s tDecls
+      (CRestrQual _) -> translateQuals s tDecls
+      (CAtomicQual _) -> translateQuals s tDecls
+      (CAttrQual _) -> translateQuals s tDecls
+      (CNullableQual _) -> translateQuals s tDecls
+      (CNonnullQual _) -> translateQuals s tDecls
+      (CClRdOnlyQual _) -> translateQuals s tDecls
+      (CClWrOnlyQual _) -> translateQuals s tDecls
     translateQuals s [] = s
     extractDecls (CDecl declSpecs [] _) = (declSpecs, [])
     extractDecls (CDecl declSpecs [(Nothing, _, _)] _) = (declSpecs, [])
@@ -270,9 +268,9 @@ translateDerivedDecl t (dDecl:dDecls) = do
   t' <- translateDerivedDecl t dDecls
   case dDecl of
     CPtrDeclr typeQuals _ -> return $ translateQuals (pointer t') typeQuals
-    CArrDeclr typeQuals _ _ -> return $ translateQuals (pointer t') typeQuals  -- TODO: this is just temporary
+    CArrDeclr typeQuals _ _ -> return $ translateQuals (pointer t') typeQuals  -- HACK: arrays are pointers
     -- old-style functions
-    CFunDeclr (Left _) _ _ -> return tError  -- TODO
+    CFunDeclr (Left _) _ _ -> return tError  -- TODO: old-style functions are currently unimplemented
     -- new-style functions (non-variadic)
     CFunDeclr (Right (rawDecls, False)) _ _ -> do
       types <- sequenceA
@@ -281,7 +279,7 @@ translateDerivedDecl t (dDecl:dDecls) = do
         ]
       return $ foldl TAp (getTupleOp $ length types) types `fn` t'
     -- new-style functions (variadic)
-    CFunDeclr (Right (decls, True)) _ _ -> return tError  -- TODO
+    CFunDeclr (Right (decls, True)) _ _ -> return tError  -- TODO: variadic functions currently unimplemented
 
 translateDecl :: CDecl -> TState Type
 translateDecl (CDecl declSpecs [] _) = translateDeclSpecs declSpecs
@@ -327,7 +325,7 @@ registerStructMembersCommon registerMemberSpecial id cDecls = do
           registerSingleCDecl (CDecl specs rest a)
         (Just (CDeclr (Just ident) derivedDecls _ _ _), Just _, Nothing):rest -> do
           let mId = getCName ident
-          registerSingleCDecl (CDecl specs rest a)  -- TODO: this is probably error (but still recognized by c++ as kosher)
+          registerSingleCDecl (CDecl specs rest a)  -- TODO: this is probably error (but still recognized by c++, for example)
         [] -> return ()
   sequence_ (registerSingleCDecl <$> cDecls)
 
@@ -458,22 +456,18 @@ transformExpr cExpr = let
     let sId = getCName ident
     name <- scopedName sId
     return $ Var name
-  -- CConst is literal
-  -- TODO: check it
   CConst (CIntConst (CInteger i _ _) _) ->
     return $ Lit $ LitInt i
-  -- TODO: do something with flags in char/string literals
   CConst (CCharConst (CChar c _) _) ->
     return $ Lit $ LitChar c
-  -- TODO: this is temporary solution
-  -- (makes the rest of the characters pointless)
+  -- TODO: this is temporary solution (makes the rest of the characters pointless)
   CConst (CCharConst (CChars (c:_) _) _) ->
     return $ Lit $ LitChar c
   CConst (CFloatConst (CFloat s) _) ->
     return $ Lit $ LitFloat s
   CConst (CStrConst (CString s _) _) ->
     return $ Lit $ LitStr s
-  -- TODO: from here on
+  -- TODO: from here on less common expressions
   -- CCompoundList
   -- CGenericSelection
   -- CStatExpr
@@ -485,7 +479,7 @@ instance Transform CExpr where
   transform expr = do
     anonName <- appendNextAnon exprId
     expr' <- transformExpr expr
-    return [([],[[(anonName, [([],expr')])]])]  -- TODO
+    return [([],[[(anonName, [([],expr')])]])]
 
 instance Transform CFunDef where
   transform funDef@(CFunDef _ (CDeclr (Just ident) _ _ _ _) _ _ _) = do
@@ -496,10 +490,10 @@ instance Transform CFunDef where
     leaveFunction
     return [funDef']
 
-instance Transform CDecl where  -- TODO
+instance Transform CDecl where
   transform (CDecl specs declrs a) = do
     pureType <- translateDeclSpecs specs
-    case declrs of  -- TODO
+    case declrs of  -- TODO: implement other forms of declarations (and polymorphic ones)
       (Just (CDeclr (Just ident) derivedDecls _ _ _), Nothing, Nothing):rest -> do
         let sId = getCName ident
         name <- sgName sId
@@ -520,15 +514,15 @@ instance Transform CDecl where  -- TODO
 instance Transform CStrLit where
   transform (CStrLit (CString s _) _) = do
     anonName <- appendNextAnon cstringId
-    return [([],[[(anonName, [([],Lit $ LitStr s)])]])]  -- TODO
+    return [([],[[(anonName, [([],Lit $ LitStr s)])]])]
 
 extractPar :: CDecl -> TState (Id, Type)
 extractPar (CDecl declSpecs [(Nothing, _, _)] _) = do
-  parName <- appendNextAnon todoId -- TODO
+  parName <- appendNextAnon todoId
   parType <- translateDeclSpecs declSpecs
   return (parName, parType)
 extractPar (CDecl declSpecs [(Just (CDeclr Nothing derived _ _ _), _, _)] _) = do
-  parName <- appendNextAnon todoId -- TODO
+  parName <- appendNextAnon todoId
   parType <- translateDeclSpecs declSpecs >>= flip translateDerivedDecl derived
   return (parName, parType)
 extractPar (CDecl declSpecs [(Just (CDeclr (Just ident) derived _ _ _), _, _)] _) = do
@@ -538,7 +532,7 @@ extractPar (CDecl declSpecs [(Just (CDeclr (Just ident) derived _ _ _), _, _)] _
   return (parName, parType)
 
 transformFunDef :: CFunDef -> Id -> TState BindGroup
-transformFunDef (CFunDef specs (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _) decls stmt _) name = do -- TODO
+transformFunDef (CFunDef specs (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _) decls stmt _) name = do
     let
       splitType fType = return $ case fType of
         (TAp (TAp arrowType parsTuple) rType) ->
@@ -549,15 +543,15 @@ transformFunDef (CFunDef specs (CDeclr (Just (Ident sId _ _)) derivedDecls _ _ _
         cFunDef@(CFunDeclr (Left idents) _ _) ->
           error $ niceError
             "Not supporting old-style functions"
-            (nodeInfo cFunDef)  -- TODO
+            (nodeInfo cFunDef)  -- TODO: implement support for old-style functions
         -- not var-args
         CFunDeclr (Right (parDecls, False)) _ _ ->
           traverse extractPar parDecls
         -- var-args
-        CFunDeclr (Right (parDecls, True)) _ _ ->
-          traverse extractPar parDecls  -- TODO
-        _ ->
-          return []  -- TODO
+        cFunDef@(CFunDeclr (Right (parDecls, True)) _ _) ->
+          error $ niceError
+            "Not supporting variadic functions"
+            (nodeInfo cFunDef)  -- TODO: implement support for variadic functions
       changeResult (TAp p r) to = TAp p to
     pureType <- translateDeclSpecs specs
     fType <- translateDerivedDecl pureType derivedDecls
@@ -681,12 +675,12 @@ instance Transform CStat where
       expr' <- transformExpr expr
       tStmt' <- transform tStmt
       fStmt' <- transform fStmt
-      return $ ([], [[(anonName, [([], expr')])]]) : (tStmt' <> fStmt')  -- TODO
+      return $ ([], [[(anonName, [([], expr')])]]) : (tStmt' <> fStmt')
     CIf expr tStmt Nothing _ -> do
       anonName <- appendNextAnon ifId
       expr' <- transformExpr expr
       tStmt' <- transform tStmt
-      return $ ([],[[(anonName, [([],expr')])]]) : tStmt'  -- TODO
+      return $ ([],[[(anonName, [([],expr')])]]) : tStmt'
     CSwitch expr stmt _ -> do
       enterSwitch
       name <- getSwitchName
@@ -698,12 +692,12 @@ instance Transform CStat where
       anonName <- appendNextAnon whileId
       expr' <- transformExpr expr
       stmt' <- transform stmt
-      return $ ([],[[(anonName, [([],expr')])]]) : stmt'  -- TODO
+      return $ ([],[[(anonName, [([],expr')])]]) : stmt'
     CFor (Left expr1) expr2 expr3 stmt a -> do
       anonNum <- T.pack . show <$> getNextAnon
       expr1' <- traverse transformExpr expr1
       let expr1'' = (\e -> (forId <> anonNum, [([], e)])) <$>  expr1'
-      expr2' <- traverse transformExpr expr2  -- TODO
+      expr2' <- traverse transformExpr expr2  -- TODO: add the requirement of the type being zero-comparable
       let expr2'' = (\e -> (forCondId <> anonNum, [([], e)])) <$> expr2'
       expr3' <- traverse transformExpr expr3
       let expr3'' = (\e -> (forIncId <> anonNum, [([], e)])) <$> expr3'
@@ -717,7 +711,7 @@ instance Transform CStat where
       enterScope mempty
       decl' <- transform decl
       let [([(name, scheme, alts)], _)] = decl'
-      expr2' <- traverse transformExpr expr2  -- TODO
+      expr2' <- traverse transformExpr expr2  -- TODO: add the requirement of the type being zero-comparable
       let expr2'' = (\e -> (forCondId <> anonNum, [([], e)])) <$> expr2'
       expr3' <- traverse transformExpr expr3
       let expr3'' = (\e -> (forIncId <> anonNum, [([], e)])) <$> expr3'
@@ -728,7 +722,7 @@ instance Transform CStat where
         , [catMaybes [expr2'', expr3'']]
         ) : stmt'
     CGoto _ _ -> return []
-    CGotoPtr _ _ -> return []  -- TODO
+    CGotoPtr _ _ -> return []  -- TODO: Add support for indirect goto branches
     CCont _ ->  return []
     CBreak _ -> return []
     CReturn (Just expr) _ -> do
@@ -745,6 +739,13 @@ instance Transform CBlockItem where
   transform (CBlockDecl cDecl) = transform cDecl
   transform (CNestedFunDef _) = return []  -- TODO: gnu thing, so maybe not-todo
 
+-- TODO: this function is temporary for testing of the type system,
+-- nontrivial inputs can fail here. It should be completely reinvented.
+{- |
+  This function determines kinds of type variables occurring
+  in the given type and it overrides the kinds of the type variables
+  (they are all defined in the field `typeVariables`).
+-}
 fixKinds :: Type -> TState Type
 fixKinds t = do
   let
@@ -752,7 +753,7 @@ fixKinds t = do
       let
         (id, kind) = getAp t1
       in (id, Kfun Star kind)
-    getAp (TVar (Tyvar id kind)) = (id, kind)  -- TODO: not sure about this
+    getAp (TVar (Tyvar id kind)) = (id, kind)
     getAp (TCon (Tycon id kind)) = (mempty, kind)
     ap = getAp t
   state@TransformMonad
@@ -761,7 +762,7 @@ fixKinds t = do
   let
     fix ts@(first@(Tyvar id1 kind1) : others) new@(id2, kind2)
       | id2 == mempty = ts
-      | id1 == id2 = Tyvar id1 kind2 : others -- TODO
+      | id1 == id2 = Tyvar id1 kind2 : others
       | otherwise = first : fix others new
     fix [] _ = []
   put state

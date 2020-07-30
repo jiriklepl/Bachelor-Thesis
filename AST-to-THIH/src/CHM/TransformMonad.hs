@@ -341,13 +341,13 @@ divOpFunc     = T.pack "/2"
 modOpFunc     = T.pack "%2"
 addOpFunc     = T.pack "+2"
 subOpFunc     = T.pack "-2"
-shlOpFunc     = T.pack "<<2"  -- TODO
-shrOpFunc     = T.pack ">>2"  -- TODO
-xorOpFunc     = T.pack "^2"  -- TODO
-orOpFunc      = T.pack "|2"  -- TODO
-andOpFunc     = T.pack "&2"  -- TODO
-logAndOpFunc  = T.pack "&&2"  -- TODO
-logOrOpFunc   = T.pack "||2"  -- TODO
+shlOpFunc     = T.pack "<<2"  -- TODO: <<2 unimplemented
+shrOpFunc     = T.pack ">>2"  -- TODO: >>2 unimplemented
+xorOpFunc     = T.pack "^2"  -- TODO: ^2 unimplemented
+orOpFunc      = T.pack "|2"  -- TODO: |2 unimplemented
+andOpFunc     = T.pack "&2"  -- TODO: &2 unimplemented
+logAndOpFunc  = T.pack "&&2"  -- TODO: &&2 unimplemented
+logOrOpFunc   = T.pack "||2"  -- TODO: ||2 unimplemented
 
 eqOpFunc      = T.pack "==2"
 neqOpFunc     = T.pack "!=2"
@@ -362,11 +362,11 @@ divAssOpFunc  = T.pack "/=2"
 modAssOpFunc  = T.pack "%=2"
 addAssOpFunc  = T.pack "+=2"
 subAssOpFunc  = T.pack "-=2"
-shlAssOpFunc  = T.pack "<<=2"  -- TODO
-shrAssOpFunc  = T.pack ">>=2"  -- TODO
-andAssOpFunc  = T.pack "&=2"  -- TODO
-xorAssOpFunc  = T.pack "^=2"  -- TODO
-orAssOpFunc   = T.pack "|=2"  -- TODO
+shlAssOpFunc  = T.pack "<<=2"  -- TODO: <<= unimplemented
+shrAssOpFunc  = T.pack ">>=2"  -- TODO: >>= unimplemented
+andAssOpFunc  = T.pack "&=2"  -- TODO: &= unimplemented
+xorAssOpFunc  = T.pack "^=2"  -- TODO: ^= unimplemented
+orAssOpFunc   = T.pack "|=2"  -- TODO: |= unimplemented
 
 preIncOpFunc  = T.pack "++1"
 postIncOpFunc = T.pack "1++"
@@ -415,15 +415,16 @@ initTransformMonad =
     , variableClasses = [[]]
     , posData = mempty
     , memberClasses =
-      -- all built-in classes (work in -- TODO)
+      -- TODO: the "real" implementation would need a lot more comprehensive list
+      -- all built-in classe:
       addClass (T.pack "Num") []
       <:> addClass (T.pack "Add") []
       <:> addClass (T.pack "Sub") []
       <:> addClass (T.pack "Mul") []
       <:> addClass (T.pack "Div") []
-      <:> addClass (T.pack "Mod") []  -- TODO
+      <:> addClass (T.pack "Mod") []
       <:> addClass (T.pack "Eq") []
-      <:> addClass (T.pack "Eq0") []  -- TODO, for types that can compare to zero (like pointers and integral types)
+      <:> addClass (T.pack "Eq0") []  -- TODO, for zero-comparable types (used in control statement conditions)
       <:> addClass (T.pack "LG") []
       <:> addClass (T.pack "BinOp") []
       <:> addClass (T.pack "LogOp") []
@@ -448,12 +449,17 @@ initTransformMonad =
       <:> addInst [] (IsIn (T.pack "Div") tInt)
       <:> addInst [] (IsIn (T.pack "Div") tFloat)
       <:> addInst [] (IsIn (T.pack "Div") tDouble)
-      <:> addInst [] (IsIn (T.pack "Mod") (pair tInt tInt))
+      <:> addInst [] (IsIn (T.pack "Mod") tInt)
       <:> addInst [] (IsIn (T.pack "Eq")  tInt)
       <:> addInst [] (IsIn (T.pack "Eq")  tChar)
       <:> addInst [] (IsIn (T.pack "Eq")  tFloat)
       <:> addInst [] (IsIn (T.pack "Eq")  tDouble)
       <:> addInst [] (IsIn (T.pack "Eq")  (pointer aTVar))
+      <:> addInst [] (IsIn (T.pack "Eq0")  tInt)
+      <:> addInst [] (IsIn (T.pack "Eq0")  tChar)
+      <:> addInst [] (IsIn (T.pack "Eq0")  tFloat)
+      <:> addInst [] (IsIn (T.pack "Eq0")  tDouble)
+      <:> addInst [] (IsIn (T.pack "Eq0")  (pointer aTVar))
       <:> addInst [] (IsIn (T.pack "LG")  tInt)
       <:> addInst [] (IsIn (T.pack "LG")  tChar)
       <:> addInst [] (IsIn (T.pack "LG")  tFloat)
@@ -516,8 +522,8 @@ initTransformMonad =
         , complOpFunc   :>: aaFuncWithClasses [IsIn (T.pack "BinOp") aTVar]
         , negOpFunc     :>: toScheme (tBool `fn` tBool)
         , commaOpFunc :>: quantify (Set.fromList [aVar, bVar]) ([] :=> (aTVar `fn` bTVar `fn` bTVar))
-        , ternaryOpFunc :>: quantify (Set.fromList [aVar, bVar]) ([] :=> (aTVar `fn` bTVar `fn` bTVar `fn` bTVar)) -- TODO: aTVar has to be 0 comparable
-        , elvisOpFunc :>: quantify (Set.fromList [aVar, bVar]) ([] :=> (aTVar `fn` bTVar `fn` bTVar)) -- TODO: aTVar has to be 0 comparable
+        , ternaryOpFunc :>: quantify (Set.fromList [aVar, bVar]) ([] :=> (aTVar `fn` bTVar `fn` bTVar `fn` bTVar)) -- TODO: aTVar has to be zero-comparable
+        , elvisOpFunc :>: quantify (Set.fromList [aVar, bVar]) ([] :=> (aTVar `fn` bTVar `fn` bTVar)) -- TODO: aTVar has to be zero-comparable
         , indexOpFunc :>: quantify (Set.fromList [aVar, bVar]) ([] :=> (pointer aTVar `fn` bTVar `fn` aTVar)) -- TODO: bTVar has to be integral
         , refFunc :>: quantify (Set.fromList [aVar]) ([] :=> (aTVar `fn` pointer aTVar))
         , derefFunc :>: quantify (Set.fromList [aVar]) ([] :=> (pointer aTVar `fn` aTVar))
@@ -652,7 +658,6 @@ leaveCHMHead = do
     , typeAliases = tail tAs
     }
 
--- | Takes a 'Type' and then -- TODO: god I am tired for this
 filterTypes :: Type -> (Set.Set Tyvar, Set.Set Id) -> (Set.Set Tyvar, Set.Set Id)
 filterTypes t accumulator@(tSet, idSet)
   | idSet == mempty = accumulator
@@ -1015,7 +1020,7 @@ getMethodScheme cId mId = do
 mangleName :: Id -> Type -> TState Id
 mangleName id mType = do
   num <- getNextAnon
-  return . (id <>) . T.pack $ '_' : show num  -- TODO
+  return . (id <>) . T.pack $ '_' : show num  -- TODO: better mangling is advised
 
 {- |
   Adds a new instance of a method of the given class
